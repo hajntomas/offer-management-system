@@ -1,1 +1,12 @@
+name = "offer-system-api"
+main = "src/index.js"
+compatibility_date = "2023-06-28"
 
+# Proměnné prostředí - později můžete přidat JWT secret
+# [vars]
+# JWT_SECRET = "development-secret-change-in-production"
+
+# KV Storage - můžete přidat později
+# kv_namespaces = [
+#   { binding = "USERS", id = "váš-kv-id", preview_id = "váš-preview-id" }
+# ]
