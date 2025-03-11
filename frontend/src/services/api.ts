@@ -1,5 +1,5 @@
 // Aktualizujte tuto URL na adresu vašeho Worker API
-const API_URL = 'https://offer-system-api.váš-username.workers.dev';
+const API_URL = 'https://broad-darkness-f0a6.hajn-tomas.workers.dev';
 
 export const api = {
   // Přihlášení uživatele
