@@ -1,14 +1,15 @@
 // backend/api/src/index.js
 export default {
   async fetch(request, env, ctx) {
-    // Umožní CORS pro vývoj
+    // Umožní CORS pouze pro konkrétní doménu frontend aplikace
     const corsHeaders = {
-      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Origin": "https://offer-management-system.pages.dev",
       "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, Authorization"
+      "Access-Control-Allow-Headers": "Content-Type, Authorization",
+      "Access-Control-Allow-Credentials": "true"
     };
 
-    // Zpracování OPTIONS požadavků pro CORS
+    // Zpracování OPTIONS požadavků pro CORS (preflight)
     if (request.method === "OPTIONS") {
       return new Response(null, {
         status: 204,
