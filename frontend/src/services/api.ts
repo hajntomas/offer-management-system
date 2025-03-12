@@ -1,8 +1,8 @@
 // frontend/src/services/api.ts
 
-// Použití relativní URL pro API volání - toto bude zachyceno Pages Functions
-// Použijeme /api/proxy jako vstupní bod
-const API_URL = '/api/proxy';
+// Používáme přímý login endpoint místo proxy
+const LOGIN_URL = '/api/auth/login';
+const API_URL = '/api/proxy'; // Pro ostatní API volání
 
 export const api = {
   // Přihlášení uživatele
@@ -10,7 +10,7 @@ export const api = {
     try {
       console.log('Attempting to login with:', { email });
       
-      const response = await fetch(`${API_URL}/auth/login`, {
+      const response = await fetch(LOGIN_URL, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -36,5 +36,6 @@ export const api = {
     }
   },
   
+  // Ostatní API volání budou nadále používat proxy
   // Tady budou později další metody pro komunikaci s API
 }
