@@ -32,22 +32,86 @@ export async function onRequest(context) {
       const response = await fetch(loginRequest);
       console.log(`Received response with status: ${response.status}`);
       
-      // Vrácení odpovědi s dodatečnými debugovacími hlavičkami
-      const responseData = await response.json();
-      return new Response(
-        JSON.stringify(responseData),
-        { 
-          status: response.status,
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Proxy-Status': 'Success',
-            'X-Original-Status': response.status.toString(),
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Methods': 'POST, OPTIONS',
-            'Access-Control-Allow-Headers': 'Content-Type, Authorization, Accept'
-          }
+      // Zkontrolujeme typ odpovědi
+      const contentType = response.headers.get('Content-Type') || '';
+      
+      // Bezpečné získání textové odpovědi
+      const responseText = await response.text();
+      console.log(`Response body: ${responseText.substring(0, 100)}...`);
+      
+      let responseData;
+      
+      // Pokus o parsování JSON pouze pokud odpověď je ve formátu JSON
+      if (contentType.includes('application/json') && responseText.trim()) {
+        try {
+          responseData = JSON.parse(responseText);
+        } catch (parseError) {
+          console.error(`Failed to parse JSON: ${parseError.message}`);
+          return new Response(
+            JSON.stringify({
+              error: 'Chyba při parsování odpovědi z API',
+              details: `Odpověď není validní JSON: ${parseError.message}`,
+              rawResponse: responseText
+            }),
+            { 
+              status: 500,
+              headers: {
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*'
+              }
+            }
+          );
         }
-      );
+      } else {
+        // Pokud odpověď není JSON, vrátíme jako chybu
+        return new Response(
+          JSON.stringify({
+            error: 'Neočekávaný formát odpovědi z API',
+            contentType,
+            responseText,
+            status: response.status
+          }),
+          { 
+            status: 500,
+            headers: {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*'
+            }
+          }
+        );
+      }
+      
+      // Pokud je vše v pořádku a máme JSON data
+      if (response.ok && responseData) {
+        return new Response(
+          JSON.stringify(responseData),
+          { 
+            status: 200,
+            headers: {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*',
+              'Access-Control-Allow-Methods': 'POST, OPTIONS',
+              'Access-Control-Allow-Headers': 'Content-Type, Authorization, Accept'
+            }
+          }
+        );
+      } else {
+        // Pokud server vrátil chybu, předáme ji klientovi
+        return new Response(
+          JSON.stringify({
+            error: responseData?.error || 'Chyba na straně serveru',
+            status: response.status,
+            details: responseData || responseText
+          }),
+          { 
+            status: response.status,
+            headers: {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*'
+            }
+          }
+        );
+      }
     } catch (error) {
       console.error(`Login error: ${error.message || 'Unknown error'}`);
       return new Response(
