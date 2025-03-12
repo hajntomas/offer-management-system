@@ -1,4 +1,4 @@
-// Aktualizujte tuto URL na adresu vašeho Worker API
+// frontend/src/services/api.ts
 const API_URL = 'https://broad-darkness-f0a6.hajn-tomas.workers.dev';
 
 export const api = {
@@ -10,6 +10,7 @@ export const api = {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ email, password }),
+      credentials: 'include', // Přidáno pro podporu cookies a autentizace
     });
     
     if (!response.ok) {
