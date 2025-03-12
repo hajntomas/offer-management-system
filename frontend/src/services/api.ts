@@ -1,5 +1,8 @@
 // frontend/src/services/api.ts
-const API_URL = 'https://broad-darkness-f0a6.hajn-tomas.workers.dev';
+
+// Použití relativní URL pro API volání - toto bude zachyceno Pages Functions
+// Použijeme /api/proxy jako vstupní bod
+const API_URL = '/api/proxy';
 
 export const api = {
   // Přihlášení uživatele
@@ -7,14 +10,12 @@ export const api = {
     try {
       console.log('Attempting to login with:', { email });
       
-      // Nejprve zkusíme zavolat API bez credentials - pouze pro testování CORS
       const response = await fetch(`${API_URL}/auth/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
         },
-        mode: 'cors', // Explicitně nastavíme CORS mode
         body: JSON.stringify({ email, password }),
       });
       
