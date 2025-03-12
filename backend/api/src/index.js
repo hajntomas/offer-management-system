@@ -1,27 +1,47 @@
-// backend/api/src/index.js
+// backend/api/src/index.js s použitím CORS helperu
+// Funkce pro správu CORS požadavků
+function handleCors(request) {
+  // Povolené domény
+  const allowedOrigin = "https://offer-management-system.pages.dev";
+  
+  // Získání origin z požadavku
+  const requestOrigin = request.headers.get("Origin");
+  
+  // Standardní CORS hlavičky
+  const corsHeaders = {
+    "Access-Control-Allow-Origin": allowedOrigin,
+    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization, Accept",
+    "Access-Control-Max-Age": "86400",
+  };
+  
+  // Pro OPTIONS požadavky vrátíme pouze hlavičky
+  if (request.method === "OPTIONS") {
+    return new Response(null, {
+      status: 204,
+      headers: corsHeaders,
+    });
+  }
+  
+  // Pro ostatní požadavky vrátíme hlavičky pro použití v odpovědi
+  return corsHeaders;
+}
+
 export default {
   async fetch(request, env, ctx) {
-    // Nejprve parsujeme URL pro zjištění cesty
+    // Zpracování CORS
+    if (request.method === "OPTIONS") {
+      return handleCors(request);
+    }
+    
+    // Získání CORS hlaviček pro přidání do odpovědi
+    const corsHeaders = handleCors(request);
+    
+    // Parsování URL pro směrování
     const url = new URL(request.url);
     const path = url.pathname;
 
-    // CORS hlavičky - explicitně povolíme pouze frontend doménu
-    const corsHeaders = {
-      "Access-Control-Allow-Origin": "https://offer-management-system.pages.dev",
-      "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, Authorization, Accept",
-      "Access-Control-Max-Age": "86400"
-    };
-
-    // Důležité: Pro preflight OPTIONS požadavky musíme vrátit 200/204 status s CORS hlavičkami
-    if (request.method === "OPTIONS") {
-      return new Response(null, {
-        status: 204,
-        headers: corsHeaders
-      });
-    }
-
-    // Simulovaná data uživatelů (v reálné aplikaci by byla v KV Storage)
+    // Simulovaná data uživatelů
     const users = {
       'admin@example.com': {
         id: '1',
@@ -39,7 +59,7 @@ export default {
       }
     };
 
-    // Jednoduchý router
+    // Router
     try {
       // Testovací endpoint
       if (path === "/") {
@@ -50,9 +70,6 @@ export default {
 
       // Přihlašovací endpoint
       if (path === "/auth/login" && request.method === "POST") {
-        // Logování pro debug
-        console.log("Received login request");
-        
         // Parsování požadavku
         let body;
         try {
