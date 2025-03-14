@@ -1,8 +1,8 @@
 // functions/api/proxy.js
-// Vylepšená verze proxy s lepším debugováním a ošetřením chyb
+// Proxy, která transformuje HTML odpovědi na JSON chyby
 
 export async function onRequest(context) {
-  // Backend API URL
+  // Nastavení backend API URL
   const API_URL = 'https://broad-darkness-f0a6.hajn-tomas.workers.dev';
   
   // Získání cesty z požadavku
@@ -10,7 +10,6 @@ export async function onRequest(context) {
   const url = new URL(request.url);
   
   // Extrahování relevantní části cesty
-  // Odstraní /api/proxy z začátku cesty
   let pathname = url.pathname;
   const apiPrefix = '/api/proxy';
   
@@ -26,9 +25,9 @@ export async function onRequest(context) {
   // Zachování případných query parametrů
   targetURL.search = url.search;
   
-  console.log(`[Proxy] Request: ${request.method} ${targetURL.toString()}`);
+  console.log(`[Proxy] ${request.method} ${targetURL.toString()}`);
   
-  // Pro OPTIONS požadavky (preflight CORS)
+  // Pro OPTIONS požadavky vraťte CORS hlavičky (preflight)
   if (request.method === 'OPTIONS') {
     return new Response(null, {
       status: 204,
@@ -42,94 +41,121 @@ export async function onRequest(context) {
   }
   
   try {
-    // Klonování hlaviček pro úpravu
+    // Klon request headers a vytvoření nových headers pro náš požadavek
     const headers = new Headers();
-    for (const [key, value] of request.headers.entries()) {
-      // Předání všech hlaviček kromě host a origin
+    request.headers.forEach((value, key) => {
+      // Neklonovat origin a host hlavičky
       if (key.toLowerCase() !== 'host' && key.toLowerCase() !== 'origin') {
         headers.append(key, value);
       }
-    }
+    });
     
-    // Zajištění správného content-type
-    if (!headers.has('Content-Type') && request.method !== 'GET') {
-      headers.set('Content-Type', 'application/json');
-    }
-    
-    // Zajištění accept hlavičky
+    // Zajistíme, že používáme application/json pro zpracování
     if (!headers.has('Accept')) {
       headers.set('Accept', 'application/json');
     }
+    if (request.method !== 'GET' && !headers.has('Content-Type')) {
+      headers.set('Content-Type', 'application/json');
+    }
     
-    // Logování autorizační hlavičky (bezpečnostní riziko v produkci!)
-    const authHeader = headers.get('Authorization');
-    console.log(`[Proxy] Authorization header present: ${authHeader ? 'yes' : 'no'}`);
+    // Pokud neexistuje Authorization hlavička ale máme token v localStorage, 
+    // získáme ho z localStorage
+    if (!headers.has('Authorization')) {
+      // Toto by mělo být nahrazeno skutečným získáním tokenu z prohlížeče,
+      // ale v Cloudflare Functions k němu nemáme přístup
+      console.log('[Proxy] No Authorization header present');
+    } else {
+      console.log('[Proxy] Authorization header found');
+    }
     
-    // Vytvoření nového požadavku
+    // Vytvořte nový požadavek se stejným tělem a metodou, ale novými headers
     const newRequest = new Request(targetURL, {
       method: request.method,
       headers: headers,
-      body: request.body,
+      body: request.method !== 'GET' && request.method !== 'HEAD' ? request.body : undefined,
       redirect: 'follow',
     });
     
-    console.log(`[Proxy] Sending request to backend with headers: ${Array.from(headers.keys()).join(', ')}`);
-    
-    // Odeslání požadavku na backend API
+    // Odeslání požadavku na API
     const response = await fetch(newRequest);
-    console.log(`[Proxy] Response status: ${response.status}`);
     
-    // Klonování odpovědi s úpravou CORS hlaviček
-    const contentType = response.headers.get('Content-Type');
-    console.log(`[Proxy] Response content type: ${contentType}`);
+    // Získání obsahu odpovědi
+    const contentType = response.headers.get('Content-Type') || '';
     
-    // Pokud odpověď není v pořádku, logujeme její obsah
-    if (!response.ok) {
-      const responseText = await response.text();
-      console.error(`[Proxy] Error response body: ${responseText.substring(0, 200)}`);
+    // Pokud odpověď není JSON, transformujeme ji na JSON chybovou zprávu
+    if (!contentType.includes('application/json')) {
+      console.log(`[Proxy] Non-JSON response received: ${contentType}`);
       
-      return new Response(responseText, {
-        status: response.status,
-        headers: {
-          'Content-Type': contentType || 'application/json',
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type, Authorization, Accept'
-        }
-      });
+      try {
+        // Načtení HTML odpovědi
+        const htmlText = await response.text();
+        console.log(`[Proxy] HTML response: ${htmlText.substring(0, 150)}...`);
+        
+        // Vytvoření JSON chybové odpovědi
+        return new Response(JSON.stringify({
+          error: 'API returned non-JSON response',
+          status: response.status,
+          content_type: contentType,
+          details: 'The API server returned HTML instead of JSON. This usually means authentication failed or API server is not properly configured.',
+          html_preview: htmlText.substring(0, 200) + (htmlText.length > 200 ? '...' : '')
+        }), {
+          status: 502, // Bad Gateway
+          headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type, Authorization, Accept'
+          }
+        });
+      } catch (textError) {
+        console.error('[Proxy] Error reading response text:', textError);
+        // Pokud selže načítání textu, vraťte obecnou chybu
+        return new Response(JSON.stringify({
+          error: 'API returned invalid response',
+          status: response.status,
+          content_type: contentType
+        }), {
+          status: 502,
+          headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type, Authorization, Accept'
+          }
+        });
+      }
     }
     
-    // Vytvoření nových hlaviček pro odpověď s CORS
+    // Pro JSON odpovědi pouze přidáme CORS hlavičky a vrátíme původní odpověď
     const responseHeaders = new Headers(response.headers);
     responseHeaders.set('Access-Control-Allow-Origin', '*');
     responseHeaders.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
     responseHeaders.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept');
     
-    // Vrácení upravené odpovědi
+    console.log(`[Proxy] Successfully returned JSON response, status: ${response.status}`);
+    
     return new Response(response.body, {
       status: response.status,
       headers: responseHeaders
     });
     
   } catch (error) {
-    // Detailní logování chyby
-    console.error(`[Proxy] Error: ${error.message}`);
-    console.error(`[Proxy] Stack: ${error.stack}`);
+    // Logování chyby
+    console.error(`[Proxy] Error:`, error);
     
-    // Zpracování chyby
-    return new Response(
-      JSON.stringify({ 
-        error: 'Proxy Error', 
-        message: error.message || 'Nelze kontaktovat API server',
-        url: targetURL.toString()
-      }),
-      {
-        status: 500,
-        headers: {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*'
-        },
+    // Vrácení JSON chybové odpovědi
+    return new Response(JSON.stringify({
+      error: 'Proxy Error',
+      message: error.message || 'Failed to contact API server',
+      target_url: targetURL.toString()
+    }), {
+      status: 500,
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization, Accept'
       }
-    );
+    });
   }
 }
