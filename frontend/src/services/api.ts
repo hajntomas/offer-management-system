@@ -1,8 +1,12 @@
 // frontend/src/services/api.ts
+// Vylepšená verze s lepším zpracováním chyb a podporou pro debug režim
 
 // API URL konfigurace
 const LOGIN_URL = '/api/auth/login';
 const API_URL = '/api/proxy'; // Pro ostatní API volání
+
+// Přidání podpory pro debug režim
+const DEBUG = true; // V produkci nastavit na false
 
 // Typy
 export type Product = {
@@ -37,71 +41,121 @@ export type Offer = {
   stav: string;
 };
 
-// Pomocné funkce pro logování
-const logApiCall = (endpoint: string, method: string) => {
-  console.log(`🌐 API Call: ${method} ${endpoint}`);
+// Typová definice pro API chyby
+export type ApiError = {
+  message: string;
+  status?: number;
+  details?: string;
+  url?: string;
+  originalError?: any;
 };
 
-// Získání autorizačního tokenu s debugováním
+// Pomocné funkce pro logování
+const logApiCall = (endpoint: string, method: string) => {
+  if (DEBUG) console.log(`🌐 API Call: ${method} ${endpoint}`);
+};
+
+// Získání autorizačního tokenu
 const getAuthHeader = () => {
   const token = localStorage.getItem('accessToken');
   if (token) {
-    console.log('✅ Autorizační token nalezen');
+    if (DEBUG) console.log('✅ Autorizační token nalezen');
     return { Authorization: `Bearer ${token}` };
   } else {
-    console.warn('⚠️ Autorizační token chybí');
+    if (DEBUG) console.warn('⚠️ Autorizační token chybí');
     return {};
   }
 };
 
 // Vylepšená funkce pro zpracování odpovědi
-const handleResponse = async (response: Response) => {
+const handleResponse = async <T>(response: Response): Promise<T> => {
   // Kontrola typu odpovědi
   const contentType = response.headers.get('Content-Type') || '';
-  console.log(`📄 Response Content-Type: ${contentType}`);
+  if (DEBUG) console.log(`📄 Response Content-Type: ${contentType}, Status: ${response.status}`);
   
-  if (!contentType.includes('application/json')) {
-    console.error('❌ Odpověď není JSON:', response.status, contentType);
+  // Nejprve získáme text odpovědi pro diagnostiku
+  let responseText: string;
+  try {
+    responseText = await response.text();
+    if (DEBUG) console.log(`📄 Response body (first 100 chars): ${responseText.substring(0, 100)}${responseText.length > 100 ? '...' : ''}`);
+  } catch (error) {
+    if (DEBUG) console.error('❌ Chyba při čtení odpovědi:', error);
+    throw new Error('Nelze přečíst odpověď serveru');
+  }
+  
+  // Pokus o parsování jako JSON
+  let data: any;
+  try {
+    // Pokud je text prázdný, vrátíme prázdný objekt
+    if (!responseText.trim()) {
+      data = {};
+    } else {
+      data = JSON.parse(responseText);
+    }
+  } catch (error) {
+    if (DEBUG) {
+      console.error('❌ Chyba při parsování JSON odpovědi:');
+      console.error('Text odpovědi:', responseText);
+      console.error('Chyba:', error);
+    }
     
-    // Získání a logování těla odpovědi
-    const text = await response.text();
-    console.error('❌ Tělo odpovědi:', text.substring(0, 200) + (text.length > 200 ? '...' : ''));
+    // Vytvoříme vlastní chybu s detaily
+    const apiError: ApiError = {
+      message: 'Neplatná odpověď serveru - nebylo možné parsovat JSON',
+      status: response.status,
+      details: responseText,
+      originalError: error
+    };
     
-    throw new Error(`Neočekávaný formát odpovědi: ${contentType}`);
+    throw apiError;
   }
   
   // Kontrola, zda je odpověď v pořádku
   if (!response.ok) {
-    console.error(`❌ Chyba API: ${response.status}`);
-    // Pokus o získání detailů chyby
-    try {
-      const errorData = await response.json();
-      console.error('❌ Chybová data:', errorData);
-      throw new Error(errorData.error || `Chyba: ${response.status}`);
-    } catch (e) {
-      // Pokud nelze zpracovat JSON, použijeme obecnou chybu
-      throw new Error(`Chyba: ${response.status}`);
-    }
+    if (DEBUG) console.error(`❌ Chyba API: ${response.status}`, data);
+    
+    // Vytvoření detailní chybové zprávy
+    const apiError: ApiError = {
+      message: data.error || data.message || `HTTP chyba: ${response.status} ${response.statusText}`,
+      status: response.status,
+      details: data.details || JSON.stringify(data)
+    };
+    
+    throw apiError;
   }
   
-  // Získání a vrácení dat
-  try {
-    const data = await response.json();
-    console.log(`✅ Odpověď úspěšně zpracována`);
-    return data;
-  } catch (e) {
-    console.error('❌ Chyba při parsování JSON odpovědi:', e);
-    throw new Error('Neplatná JSON odpověď');
-  }
+  if (DEBUG) console.log(`✅ Odpověď úspěšně zpracována`);
+  return data as T;
 };
 
-// API služba
+// Vylepšená API služba s lepším zpracováním chyb
 export const api = {
+  // Pomocná funkce pro přímé testování API endpointů
+  testEndpoint: async (path: string): Promise<any> => {
+    const url = path.startsWith('http') ? path : `${API_URL}${path.startsWith('/') ? path : '/' + path}`;
+    if (DEBUG) console.log(`🔍 Testing endpoint: ${url}`);
+    
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+          ...getAuthHeader()
+        }
+      });
+      
+      return handleResponse(response);
+    } catch (error) {
+      if (DEBUG) console.error(`❌ Test endpoint error:`, error);
+      throw error;
+    }
+  },
+  
   // Autentizace
   login: async (email: string, password: string) => {
     logApiCall('login', 'POST');
     try {
-      console.log('🔑 Pokus o přihlášení:', { email });
+      if (DEBUG) console.log('🔑 Pokus o přihlášení:', { email });
       
       const response = await fetch(LOGIN_URL, {
         method: 'POST',
@@ -113,11 +167,17 @@ export const api = {
       });
       
       const data = await handleResponse(response);
-      console.log('✅ Přihlášení úspěšné');
+      if (DEBUG) console.log('✅ Přihlášení úspěšné');
       return data;
     } catch (error: any) {
-      console.error('❌ Chyba přihlášení:', error);
-      throw error;
+      if (DEBUG) console.error('❌ Chyba přihlášení:', error);
+      
+      // Vytvoření user-friendly zprávy
+      if (error.status === 401) {
+        throw new Error('Neplatné přihlašovací údaje');
+      } else {
+        throw new Error(error.message || 'Chyba při přihlášení');
+      }
     }
   },
   
@@ -134,10 +194,10 @@ export const api = {
         }
       });
       
-      return handleResponse(response);
+      return handleResponse<Product[]>(response);
     } catch (error: any) {
-      console.error('❌ Chyba načítání produktů:', error);
-      throw error;
+      if (DEBUG) console.error('❌ Chyba načítání produktů:', error);
+      throw new Error(error.message || 'Chyba při načítání produktů');
     }
   },
   
@@ -153,10 +213,10 @@ export const api = {
         }
       });
       
-      return handleResponse(response);
+      return handleResponse<Product>(response);
     } catch (error: any) {
-      console.error(`❌ Chyba načítání produktu ${id}:`, error);
-      throw error;
+      if (DEBUG) console.error(`❌ Chyba načítání produktu ${id}:`, error);
+      throw new Error(error.message || `Chyba při načítání produktu`);
     }
   },
   
@@ -173,10 +233,10 @@ export const api = {
         body: JSON.stringify(product)
       });
       
-      return handleResponse(response);
+      return handleResponse<Product>(response);
     } catch (error: any) {
-      console.error('❌ Chyba vytváření produktu:', error);
-      throw error;
+      if (DEBUG) console.error('❌ Chyba vytváření produktu:', error);
+      throw new Error(error.message || 'Chyba při vytváření produktu');
     }
   },
   
@@ -193,10 +253,10 @@ export const api = {
         body: JSON.stringify(product)
       });
       
-      return handleResponse(response);
+      return handleResponse<Product>(response);
     } catch (error: any) {
-      console.error(`❌ Chyba aktualizace produktu ${id}:`, error);
-      throw error;
+      if (DEBUG) console.error(`❌ Chyba aktualizace produktu ${id}:`, error);
+      throw new Error(error.message || 'Chyba při aktualizaci produktu');
     }
   },
   
@@ -212,10 +272,10 @@ export const api = {
         }
       });
       
-      return handleResponse(response);
+      return handleResponse<{ message: string }>(response);
     } catch (error: any) {
-      console.error(`❌ Chyba mazání produktu ${id}:`, error);
-      throw error;
+      if (DEBUG) console.error(`❌ Chyba mazání produktu ${id}:`, error);
+      throw new Error(error.message || 'Chyba při mazání produktu');
     }
   },
   
@@ -232,10 +292,10 @@ export const api = {
         body: JSON.stringify({ xml: xmlData })
       });
       
-      return handleResponse(response);
+      return handleResponse<{ message: string, count: number }>(response);
     } catch (error: any) {
-      console.error('❌ Chyba importu produktů:', error);
-      throw error;
+      if (DEBUG) console.error('❌ Chyba importu produktů:', error);
+      throw new Error(error.message || 'Chyba při importu produktů');
     }
   },
   
@@ -252,10 +312,10 @@ export const api = {
         }
       });
       
-      return handleResponse(response);
+      return handleResponse<Offer[]>(response);
     } catch (error: any) {
-      console.error('❌ Chyba načítání nabídek:', error);
-      throw error;
+      if (DEBUG) console.error('❌ Chyba načítání nabídek:', error);
+      throw new Error(error.message || 'Chyba při načítání nabídek');
     }
   },
   
@@ -271,10 +331,10 @@ export const api = {
         }
       });
       
-      return handleResponse(response);
+      return handleResponse<Offer>(response);
     } catch (error: any) {
-      console.error(`❌ Chyba načítání nabídky ${id}:`, error);
-      throw error;
+      if (DEBUG) console.error(`❌ Chyba načítání nabídky ${id}:`, error);
+      throw new Error(error.message || 'Chyba při načítání nabídky');
     }
   },
   
@@ -291,10 +351,10 @@ export const api = {
         body: JSON.stringify(offer)
       });
       
-      return handleResponse(response);
+      return handleResponse<Offer>(response);
     } catch (error: any) {
-      console.error('❌ Chyba vytváření nabídky:', error);
-      throw error;
+      if (DEBUG) console.error('❌ Chyba vytváření nabídky:', error);
+      throw new Error(error.message || 'Chyba při vytváření nabídky');
     }
   },
   
@@ -311,10 +371,10 @@ export const api = {
         body: JSON.stringify(offer)
       });
       
-      return handleResponse(response);
+      return handleResponse<Offer>(response);
     } catch (error: any) {
-      console.error(`❌ Chyba aktualizace nabídky ${id}:`, error);
-      throw error;
+      if (DEBUG) console.error(`❌ Chyba aktualizace nabídky ${id}:`, error);
+      throw new Error(error.message || 'Chyba při aktualizaci nabídky');
     }
   },
   
@@ -330,10 +390,10 @@ export const api = {
         }
       });
       
-      return handleResponse(response);
+      return handleResponse<{ message: string }>(response);
     } catch (error: any) {
-      console.error(`❌ Chyba mazání nabídky ${id}:`, error);
-      throw error;
+      if (DEBUG) console.error(`❌ Chyba mazání nabídky ${id}:`, error);
+      throw new Error(error.message || 'Chyba při mazání nabídky');
     }
   },
   
@@ -353,8 +413,8 @@ export const api = {
       
       return handleResponse(response);
     } catch (error: any) {
-      console.error('❌ Chyba AI asistence:', error);
-      throw error;
+      if (DEBUG) console.error('❌ Chyba AI asistence:', error);
+      throw new Error(error.message || 'Chyba při komunikaci s AI');
     }
   }
 };
