@@ -4,6 +4,7 @@ import { LoginPage } from './pages/LoginPage';
 import { Dashboard } from './pages/Dashboard';
 import { ProductsPage } from './pages/ProductsPage';
 import { OffersPage } from './pages/OffersPage';
+import { DiagnosticsPage } from './pages/DiagnosticsPage';
 import { useEffect, useState } from 'react';
 
 // Komponenta pro ochranu cest (require authentication)
@@ -41,6 +42,9 @@ function App() {
       <Routes>
         {/* Veřejné stránky */}
         <Route path="/login" element={<LoginPage />} />
+        
+        {/* Pro vývoj - diagnostika je přístupná bez přihlášení */}
+        <Route path="/dev/diagnostics" element={<DiagnosticsPage />} />
         
         {/* Chráněné stránky */}
         <Route path="/dashboard" element={
