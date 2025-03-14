@@ -62,7 +62,10 @@ export function Dashboard() {
                 <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
                   <h3 className="font-medium text-blue-800 mb-2">Produkty</h3>
                   <p className="text-sm text-blue-600">Přidávejte a spravujte své produkty</p>
-                  <button className="mt-4 px-3 py-1 bg-blue-600 text-white rounded-md text-sm">
+                  <button 
+                    onClick={() => window.location.href = '/products'}
+                    className="mt-4 px-3 py-1 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700"
+                  >
                     Spravovat produkty
                   </button>
                 </div>
@@ -70,7 +73,10 @@ export function Dashboard() {
                 <div className="bg-green-50 p-4 rounded-lg border border-green-200">
                   <h3 className="font-medium text-green-800 mb-2">Nabídky</h3>
                   <p className="text-sm text-green-600">Vytvářejte a upravujte nabídky</p>
-                  <button className="mt-4 px-3 py-1 bg-green-600 text-white rounded-md text-sm">
+                  <button 
+                    onClick={() => window.location.href = '/offers'}
+                    className="mt-4 px-3 py-1 bg-green-600 text-white rounded-md text-sm hover:bg-green-700"
+                  >
                     Vytvořit nabídku
                   </button>
                 </div>
