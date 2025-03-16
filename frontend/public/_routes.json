@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "routes": [
+    { "src": "/api/*", "dest": "/api/:splat" },
+    { "src": "/*", "dest": "/index.html" }
+  ]
+}
