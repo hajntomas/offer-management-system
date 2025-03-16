@@ -2,6 +2,11 @@
 import { useEffect, useState } from 'react';
 import { api, Offer, Product } from '../services/api';
 
+// Pomocná funkce pro bezpečné formátování čísel
+const formatCurrency = (value?: number) => {
+  return value !== undefined && value !== null ? value.toLocaleString() : '0';
+};
+
 export function OffersPage() {
   // Stav
   const [offers, setOffers] = useState<Offer[]>([]);
@@ -311,13 +316,13 @@ export function OffersPage() {
                         {offer.zakaznik}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {new Date(offer.datum_vytvoreni).toLocaleDateString()}
+                        {offer.datum_vytvoreni ? new Date(offer.datum_vytvoreni).toLocaleDateString() : ''}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {new Date(offer.platnost_do).toLocaleDateString()}
+                        {offer.platnost_do ? new Date(offer.platnost_do).toLocaleDateString() : ''}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                        {offer.celkova_cena_s_dph.toLocaleString()} Kč
+                        {formatCurrency(offer.celkova_cena_s_dph)} Kč
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
@@ -508,7 +513,7 @@ export function OffersPage() {
                       <option value="" disabled>Vyberte produkt</option>
                       {products.map(product => (
                         <option key={product.id} value={product.id}>
-                          {product.nazev} - {product.cena_s_dph.toLocaleString()} Kč
+                          {product.nazev} - {formatCurrency(product.cena_s_dph)} Kč
                         </option>
                       ))}
                     </select>
@@ -551,7 +556,7 @@ export function OffersPage() {
                                 {product?.nazev || 'Neznámý produkt'}
                               </td>
                               <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500">
-                                {item.cena_s_dph.toLocaleString()} Kč
+                                {formatCurrency(item.cena_s_dph)} Kč
                               </td>
                               <td className="px-4 py-2 whitespace-nowrap">
                                 <div className="flex justify-center items-center">
@@ -577,7 +582,7 @@ export function OffersPage() {
                                 </div>
                               </td>
                               <td className="px-4 py-2 whitespace-nowrap text-sm text-right text-gray-900 font-medium">
-                                {(item.cena_s_dph * item.pocet).toLocaleString()} Kč
+                                {formatCurrency(item.cena_s_dph * item.pocet)} Kč
                               </td>
                               <td className="px-4 py-2 whitespace-nowrap text-right text-sm font-medium">
                                 <button
@@ -597,7 +602,7 @@ export function OffersPage() {
                             Celková cena:
                           </td>
                           <td className="px-4 py-2 whitespace-nowrap text-sm text-right text-gray-900 font-bold">
-                            {newOffer.celkova_cena_s_dph.toLocaleString()} Kč
+                            {formatCurrency(newOffer.celkova_cena_s_dph)} Kč
                           </td>
                           <td></td>
                         </tr>
@@ -606,7 +611,7 @@ export function OffersPage() {
                             Cena bez DPH:
                           </td>
                           <td className="px-4 py-2 whitespace-nowrap text-sm text-right text-gray-500">
-                            {newOffer.celkova_cena_bez_dph.toLocaleString()} Kč
+                            {formatCurrency(newOffer.celkova_cena_bez_dph)} Kč
                           </td>
                           <td></td>
                         </tr>
@@ -666,11 +671,11 @@ export function OffersPage() {
                 </div>
                 <div>
                   <h4 className="text-sm font-medium text-gray-500">Datum vytvoření</h4>
-                  <p>{new Date(selectedOffer.datum_vytvoreni).toLocaleDateString()}</p>
+                  <p>{selectedOffer.datum_vytvoreni ? new Date(selectedOffer.datum_vytvoreni).toLocaleDateString() : ''}</p>
                 </div>
                 <div>
                   <h4 className="text-sm font-medium text-gray-500">Platnost do</h4>
-                  <p>{new Date(selectedOffer.platnost_do).toLocaleDateString()}</p>
+                  <p>{selectedOffer.platnost_do ? new Date(selectedOffer.platnost_do).toLocaleDateString() : ''}</p>
                 </div>
                 <div>
                   <h4 className="text-sm font-medium text-gray-500">Stav</h4>
@@ -689,7 +694,7 @@ export function OffersPage() {
               <div className="mb-6">
                 <h4 className="text-md font-medium text-gray-800 mb-2">Položky nabídky</h4>
                 
-                {selectedOffer.polozky.length === 0 ? (
+                {selectedOffer.polozky && selectedOffer.polozky.length === 0 ? (
                   <div className="text-center py-4 text-gray-500">
                     Nabídka neobsahuje žádné položky.
                   </div>
@@ -713,7 +718,7 @@ export function OffersPage() {
                         </tr>
                       </thead>
                       <tbody className="bg-white divide-y divide-gray-200">
-                        {selectedOffer.polozky.map((item) => {
+                        {selectedOffer.polozky && selectedOffer.polozky.map((item) => {
                           const product = getProductById(item.produkt_id);
                           return (
                             <tr key={item.produkt_id}>
@@ -721,13 +726,13 @@ export function OffersPage() {
                                 {product?.nazev || 'Neznámý produkt'}
                               </td>
                               <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500">
-                                {item.cena_s_dph.toLocaleString()} Kč
+                                {formatCurrency(item.cena_s_dph)} Kč
                               </td>
                               <td className="px-4 py-2 whitespace-nowrap text-sm text-center text-gray-500">
                                 {item.pocet} ks
                               </td>
                               <td className="px-4 py-2 whitespace-nowrap text-sm text-right text-gray-900">
-                                {(item.cena_s_dph * item.pocet).toLocaleString()} Kč
+                                {formatCurrency(item.cena_s_dph * item.pocet)} Kč
                               </td>
                             </tr>
                           );
@@ -739,7 +744,7 @@ export function OffersPage() {
                             Celková cena:
                           </td>
                           <td className="px-4 py-2 whitespace-nowrap text-sm text-right text-gray-900 font-bold">
-                            {selectedOffer.celkova_cena_s_dph.toLocaleString()} Kč
+                            {formatCurrency(selectedOffer.celkova_cena_s_dph)} Kč
                           </td>
                         </tr>
                         <tr>
@@ -747,7 +752,7 @@ export function OffersPage() {
                             Cena bez DPH:
                           </td>
                           <td className="px-4 py-2 whitespace-nowrap text-sm text-right text-gray-500">
-                            {selectedOffer.celkova_cena_bez_dph.toLocaleString()} Kč
+                            {formatCurrency(selectedOffer.celkova_cena_bez_dph)} Kč
                           </td>
                         </tr>
                       </tbody>
