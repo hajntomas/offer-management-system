@@ -3,7 +3,8 @@
 
 // API URL konfigurace
 const LOGIN_URL = '/api/auth/login';
-const API_URL = '/api/proxy'; // Pro ostatní API volání
+// ZMĚNA ZDE - změňte na přímou URL backend API
+const API_URL = 'https://broad-darkness-f0a6.hajn-tomas.workers.dev'; // Pro ostatní API volání
 
 // Přidání podpory pro debug režim
 const DEBUG = true; // V produkci nastavit na false
