@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 export function Dashboard() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [user, setUser] = useState<any>(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
     // Ověření, zda je uživatel přihlášen
@@ -62,12 +64,12 @@ export function Dashboard() {
                 <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
                   <h3 className="font-medium text-blue-800 mb-2">Produkty</h3>
                   <p className="text-sm text-blue-600">Přidávejte a spravujte své produkty</p>
-                  <button 
-                    onClick={() => window.location.href = '/products'}
-                    className="mt-4 px-3 py-1 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700"
-                  >
-                    Spravovat produkty
-                  </button>
+                   <button 
+    onClick={() => navigate('/products')}
+    className="mt-4 px-3 py-1 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700"
+  >
+    Spravovat produkty
+  </button>
                 </div>
                 
                 <div className="bg-green-50 p-4 rounded-lg border border-green-200">
