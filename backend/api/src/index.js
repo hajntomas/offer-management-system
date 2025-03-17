@@ -1,5 +1,18 @@
 // backend/api/src/index.js
-// Upravená verze pro řešení problému s HTML odpovědmi
+// Upravená verze pro integraci nových produktových handlerů
+
+// Import nových produktových handlerů
+import {
+  handleImportXmlCenik,
+  handleImportXmlPopisky,
+  handleImportExcel,
+  handleMergeProductData,
+  handleGetProducts,
+  handleGetProductDetail,
+  handleGetProductCategories,
+  handleGetProductManufacturers,
+  handleGetProductImportHistory
+} from './handlers/productHandlers.js';
 
 // CORS hlavičky pro cross-origin požadavky
 const corsHeaders = {
@@ -28,7 +41,7 @@ const users = {
   }
 };
 
-// Simulovaná data produktů
+// Simulovaná data produktů pro zpětnou kompatibilitu
 const products = [
   {
     id: '1',
@@ -139,76 +152,65 @@ function authenticateRequest(request) {
   return { authenticated: true, userId: payload.userId };
 }
 
-// Funkce pro zpracování XML importu
-function parseXmlProducts(xmlText) {
-  try {
-    // Jednoduchý regexp-based parser namísto DOMParser, který není dostupný v Cloudflare Workers
-    const products = [];
-    const productMatches = xmlText.match(/<product[^>]*>[\s\S]*?<\/product>/g) || [];
-    
-    for (let i = 0; i < productMatches.length; i++) {
-      const productXml = productMatches[i];
-      
-      // Získání ID
-      const idMatch = productXml.match(/id=['"]([^'"]+)['"]/);
-      const id = idMatch ? idMatch[1] : String(Date.now() + i);
-      
-      // Získání ostatních hodnot
-      const getTagContent = (tag) => {
-        const match = productXml.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\/${tag}>`));
-        return match ? match[1].trim() : "";
-      };
-      
-      products.push({
-        id: id,
-        kod: getTagContent('code'),
-        nazev: getTagContent('name'),
-        cena_bez_dph: parseFloat(getTagContent('price')) || 0,
-        cena_s_dph: parseFloat(getTagContent('price_vat')) || 0,
-        dostupnost: getTagContent('availability'),
-        kategorie: getTagContent('category'),
-        vyrobce: getTagContent('manufacturer'),
-        popis: getTagContent('description')
-      });
-    }
-    
-    return products;
-  } catch (error) {
-    console.error("Error parsing XML:", error);
-    throw new Error("Neplatný XML formát");
-  }
-}
-
-// Endpointy API pro produkty
-async function handleProductsRequest(request, url) {
+// Endpointy API pro produkty - UPRAVENO pro použití nových handleru
+async function handleProductsRequest(request, url, env) {
   // Rozlišení podle cesty
   const path = url.pathname;
   console.log("Products path:", path);
   
+  // UPRAVENO - Zpracování speciálních produktových endpointů
+  
+  // Import z XML ceníku
+  if (path === '/products/import/cenik' && request.method === 'POST') {
+    return handleImportXmlCenik(request, env);
+  }
+  
+  // Import z XML popisků
+  if (path === '/products/import/popisky' && request.method === 'POST') {
+    return handleImportXmlPopisky(request, env);
+  }
+  
+  // Import z Excel souboru
+  if (path === '/products/import/excel' && request.method === 'POST') {
+    return handleImportExcel(request, env);
+  }
+  
+  // Ruční sloučení dat produktů
+  if (path === '/products/merge' && request.method === 'POST') {
+    return handleMergeProductData(request, env);
+  }
+  
+  // Získání kategorií produktů
+  if (path === '/products/categories' && request.method === 'GET') {
+    return handleGetProductCategories(request, env);
+  }
+  
+  // Získání výrobců produktů
+  if (path === '/products/manufacturers' && request.method === 'GET') {
+    return handleGetProductManufacturers(request, env);
+  }
+  
+  // Získání historie importů produktů
+  if (path === '/products/import-history' && request.method === 'GET') {
+    return handleGetProductImportHistory(request, env);
+  }
+  
+  // Extrakce ID produktu z URL
   const productId = path.match(/^\/products\/([^\/]+)$/)?.[1];
   
   // GET /products - Seznam všech produktů
   if (path === '/products' && request.method === 'GET') {
-    console.log("Returning all products");
-    return new Response(JSON.stringify(products), {
-      headers: { 'Content-Type': 'application/json', ...corsHeaders }
-    });
+    // UPRAVENO - Použití nového handleru pro získání produktů
+    return handleGetProducts(request, env);
   }
   
   // GET /products/:id - Detail produktu
   if (productId && request.method === 'GET') {
-    const product = products.find(p => p.id === productId);
-    if (!product) {
-      return new Response(JSON.stringify({ error: 'Produkt nenalezen' }), {
-        status: 404,
-        headers: { 'Content-Type': 'application/json', ...corsHeaders }
-      });
-    }
-    
-    return new Response(JSON.stringify(product), {
-      headers: { 'Content-Type': 'application/json', ...corsHeaders }
-    });
+    // UPRAVENO - Použití nového handleru pro detail produktu
+    return handleGetProductDetail(request, env, productId);
   }
+  
+  // Zachování původního kódu pro ostatní operace
   
   // POST /products - Vytvoření nového produktu
   if (path === '/products' && request.method === 'POST') {
@@ -288,7 +290,7 @@ async function handleProductsRequest(request, url) {
     });
   }
   
-  // POST /products/import - Import produktů z XML
+  // Obecný endpoint pro import produktů z XML pro zpětnou kompatibilitu
   if (path === '/products/import' && request.method === 'POST') {
     try {
       const contentType = request.headers.get('Content-Type') || '';
@@ -310,28 +312,12 @@ async function handleProductsRequest(request, url) {
         });
       }
       
-      // Parsování XML a přidání/aktualizace produktů
-      const importedProducts = parseXmlProducts(xmlText);
-      
-      console.log(`Imported ${importedProducts.length} products`);
-      
-      // Aktualizace stávajících produktů nebo přidání nových
-      for (const importedProduct of importedProducts) {
-        const index = products.findIndex(p => p.kod === importedProduct.kod);
-        if (index !== -1) {
-          products[index] = { ...products[index], ...importedProduct };
-        } else {
-          products.push(importedProduct);
-        }
-      }
-      
-      return new Response(JSON.stringify({ 
-        message: 'Import proběhl úspěšně', 
-        count: importedProducts.length 
-      }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json', ...corsHeaders }
-      });
+      // Přesměrování na nový handler pro XML ceník
+      return handleImportXmlCenik(new Request(request.url, {
+        method: 'POST',
+        headers: request.headers,
+        body: JSON.stringify({ xml: xmlText })
+      }), env);
     } catch (error) {
       console.error("Error importing products:", error);
       return new Response(JSON.stringify({ 
@@ -351,7 +337,7 @@ async function handleProductsRequest(request, url) {
   });
 }
 
-// Endpointy API pro nabídky
+// Endpointy API pro nabídky - původní implementace
 async function handleOffersRequest(request, url) {
   // Rozlišení podle cesty
   const path = url.pathname;
@@ -466,7 +452,7 @@ async function handleOffersRequest(request, url) {
   });
 }
 
-// Endpoint pro AI asistenci
+// Endpoint pro AI asistenci - původní implementace
 async function handleAiRequest(request, url) {
   // Implementace mockované AI asistence
   if (url.pathname === '/ai/suggest' && request.method === 'POST') {
@@ -527,7 +513,7 @@ async function handleAiRequest(request, url) {
   });
 }
 
-// Přihlašovací endpoint
+// Přihlašovací endpoint - původní implementace
 async function handleAuthRequest(request, url) {
   if (url.pathname === '/auth/login' && request.method === 'POST') {
     try {
@@ -598,8 +584,8 @@ async function handleAuthRequest(request, url) {
   });
 }
 
-// Hlavní funkce pro zpracování požadavků
-async function handleRequest(request) {
+// Hlavní funkce pro zpracování požadavků - UPRAVENO pro předání env parametru
+async function handleRequest(request, env) {
   const url = new URL(request.url);
   console.log(`Request: ${request.method} ${url.pathname}`);
   
@@ -620,9 +606,8 @@ async function handleRequest(request) {
   }
   
   if (url.pathname.startsWith('/products')) {
-    // Pro zjednodušení testování - nebudeme vyžadovat autentizaci pro GET požadavky na produkty
-    console.log("Products endpoint called");
-    return handleProductsRequest(request, url);
+    // UPRAVENO - předáváme env parametr pro přístup ke KV Storage
+    return handleProductsRequest(request, url, env);
   }
   
   if (url.pathname.startsWith('/offers')) {
@@ -660,7 +645,8 @@ async function handleRequest(request) {
 export default {
   async fetch(request, env, ctx) {
     try {
-      return await handleRequest(request);
+      // UPRAVENO - předáváme env parametr pro přístup ke KV Storage
+      return await handleRequest(request, env);
     } catch (error) {
       console.error("Unhandled error:", error);
       return new Response(JSON.stringify({ 
