@@ -1,5 +1,5 @@
 // frontend/src/services/api.ts
-// Vylepšená verze s lepším zpracováním chyb a podporou pro debug režim
+// Aktualizovaná verze s podporou nových produktových endpointů
 
 // API URL konfigurace
 const LOGIN_URL = '/api/auth/login';
@@ -11,15 +11,46 @@ const DEBUG = true; // V produkci nastavit na false
 
 // Typy
 export type Product = {
-  id: string;
+  id?: string;
   kod: string;
   nazev: string;
   cena_bez_dph: number;
   cena_s_dph: number;
-  dostupnost: string;
-  kategorie: string;
-  vyrobce: string;
-  popis: string;
+  dostupnost: string | number;
+  kategorie?: string;
+  vyrobce?: string;
+  popis?: string;
+  kratky_popis?: string;
+  obrazek?: string;
+  ean?: string;
+  parametry?: string;
+  dokumenty?: string;
+  merged_sources?: string[];
+};
+
+export type ProductsResponse = {
+  products: Product[];
+  pagination: {
+    page: number;
+    limit: number;
+    totalProducts: number;
+    totalPages: number;
+  },
+  lastUpdated?: string;
+};
+
+export type ImportResponse = {
+  message: string;
+  count: number;
+  filename?: string;
+};
+
+export type ProductFilterOptions = {
+  kategorie?: string;
+  vyrobce?: string;
+  search?: string;
+  page?: number;
+  limit?: number;
 };
 
 export type OfferItem = {
@@ -129,7 +160,21 @@ const handleResponse = async <T>(response: Response): Promise<T> => {
   return data as T;
 };
 
-// Vylepšená API služba s lepším zpracováním chyb
+// Pomocná funkce pro sestavení URL s parametry
+const buildUrlWithParams = (baseUrl: string, params: Record<string, any>): string => {
+  const url = new URL(baseUrl);
+  
+  // Přidání parametrů, které nejsou undefined nebo prázdné řetězce
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== '') {
+      url.searchParams.append(key, String(value));
+    }
+  });
+  
+  return url.toString();
+};
+
+// Aktualizovaná API služba s podporou nových produktových endpointů
 export const api = {
   // Pomocná funkce pro přímé testování API endpointů
   testEndpoint: async (path: string): Promise<any> => {
@@ -182,11 +227,15 @@ export const api = {
     }
   },
   
-  // Produkty
-  getProducts: async (): Promise<Product[]> => {
+  // Produkty - AKTUALIZOVANÉ METODY
+  
+  // Získání seznamu produktů s filtrováním a stránkováním
+  getProducts: async (options: ProductFilterOptions = {}): Promise<Product[]> => {
     logApiCall('products', 'GET');
     try {
-      const response = await fetch(`${API_URL}/products`, {
+      const url = buildUrlWithParams(`${API_URL}/products`, options);
+      
+      const response = await fetch(url, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -195,13 +244,15 @@ export const api = {
         }
       });
       
-      return handleResponse<Product[]>(response);
+      const data = await handleResponse<ProductsResponse>(response);
+      return data.products || [];
     } catch (error: any) {
       if (DEBUG) console.error('❌ Chyba načítání produktů:', error);
       throw new Error(error.message || 'Chyba při načítání produktů');
     }
   },
   
+  // Získání detailu produktu
   getProduct: async (id: string): Promise<Product> => {
     logApiCall(`products/${id}`, 'GET');
     try {
@@ -221,6 +272,152 @@ export const api = {
     }
   },
   
+  // Získání kategorií produktů
+  getProductCategories: async (): Promise<string[]> => {
+    logApiCall('products/categories', 'GET');
+    try {
+      const response = await fetch(`${API_URL}/products/categories`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          ...getAuthHeader()
+        }
+      });
+      
+      return handleResponse<string[]>(response);
+    } catch (error: any) {
+      if (DEBUG) console.error('❌ Chyba načítání kategorií:', error);
+      throw new Error(error.message || 'Chyba při načítání kategorií produktů');
+    }
+  },
+  
+  // Získání výrobců produktů
+  getProductManufacturers: async (): Promise<string[]> => {
+    logApiCall('products/manufacturers', 'GET');
+    try {
+      const response = await fetch(`${API_URL}/products/manufacturers`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          ...getAuthHeader()
+        }
+      });
+      
+      return handleResponse<string[]>(response);
+    } catch (error: any) {
+      if (DEBUG) console.error('❌ Chyba načítání výrobců:', error);
+      throw new Error(error.message || 'Chyba při načítání výrobců produktů');
+    }
+  },
+  
+  // Import produktů ze XML ceníku
+  importXmlCenik: async (xmlData: string): Promise<ImportResponse> => {
+    logApiCall('products/import/cenik', 'POST');
+    try {
+      const response = await fetch(`${API_URL}/products/import/cenik`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          ...getAuthHeader()
+        },
+        body: JSON.stringify({ xml: xmlData })
+      });
+      
+      return handleResponse<ImportResponse>(response);
+    } catch (error: any) {
+      if (DEBUG) console.error('❌ Chyba importu XML ceníku:', error);
+      throw new Error(error.message || 'Chyba při importu XML ceníku');
+    }
+  },
+  
+  // Import produktů ze XML popisků
+  importXmlPopisky: async (xmlData: string): Promise<ImportResponse> => {
+    logApiCall('products/import/popisky', 'POST');
+    try {
+      const response = await fetch(`${API_URL}/products/import/popisky`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          ...getAuthHeader()
+        },
+        body: JSON.stringify({ xml: xmlData })
+      });
+      
+      return handleResponse<ImportResponse>(response);
+    } catch (error: any) {
+      if (DEBUG) console.error('❌ Chyba importu XML popisků:', error);
+      throw new Error(error.message || 'Chyba při importu XML popisků');
+    }
+  },
+  
+  // Import produktů z Excel souboru
+  importExcel: async (file: File): Promise<ImportResponse> => {
+    logApiCall('products/import/excel', 'POST');
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      const response = await fetch(`${API_URL}/products/import/excel`, {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          ...getAuthHeader()
+        },
+        body: formData
+      });
+      
+      return handleResponse<ImportResponse>(response);
+    } catch (error: any) {
+      if (DEBUG) console.error('❌ Chyba importu Excel souboru:', error);
+      throw new Error(error.message || 'Chyba při importu Excel souboru');
+    }
+  },
+  
+  // Ruční sloučení dat produktů
+  mergeProductData: async (): Promise<{ message: string, count: number }> => {
+    logApiCall('products/merge', 'POST');
+    try {
+      const response = await fetch(`${API_URL}/products/merge`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          ...getAuthHeader()
+        }
+      });
+      
+      return handleResponse<{ message: string, count: number }>(response);
+    } catch (error: any) {
+      if (DEBUG) console.error('❌ Chyba slučování dat produktů:', error);
+      throw new Error(error.message || 'Chyba při slučování dat produktů');
+    }
+  },
+  
+  // Získání historie importů produktů
+  getProductImportHistory: async (): Promise<any> => {
+    logApiCall('products/import-history', 'GET');
+    try {
+      const response = await fetch(`${API_URL}/products/import-history`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          ...getAuthHeader()
+        }
+      });
+      
+      return handleResponse(response);
+    } catch (error: any) {
+      if (DEBUG) console.error('❌ Chyba načítání historie importů:', error);
+      throw new Error(error.message || 'Chyba při načítání historie importů');
+    }
+  },
+  
+  // Stávající metody pro kompatibilitu
   createProduct: async (product: Omit<Product, 'id'>): Promise<Product> => {
     logApiCall('products', 'POST');
     try {
@@ -280,6 +477,7 @@ export const api = {
     }
   },
   
+  // Původní metoda pro import - zachována pro zpětnou kompatibilitu
   importProducts: async (xmlData: string): Promise<{ message: string, count: number }> => {
     logApiCall('products/import', 'POST');
     try {
@@ -300,7 +498,7 @@ export const api = {
     }
   },
   
-  // Nabídky
+  // Nabídky - původní implementace zachována
   getOffers: async (): Promise<Offer[]> => {
     logApiCall('offers', 'GET');
     try {
@@ -398,7 +596,7 @@ export const api = {
     }
   },
   
-  // AI asistence
+  // AI asistence - původní implementace zachována
   getAiSuggestion: async (query: string, context?: any): Promise<any> => {
     logApiCall('ai/suggest', 'POST');
     try {
