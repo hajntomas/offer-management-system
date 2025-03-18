@@ -1,5 +1,5 @@
 // backend/api/src/index.js
-// Upravená verze pro integraci nových produktových handlerů
+// Upravená verze s rozšířenou diagnostikou
 
 // Import nových produktových handlerů
 import {
@@ -118,7 +118,7 @@ function parseJwt(token) {
 function handleCors(request) {
   // Odpověď na OPTIONS preflight požadavky
   if (request.method === 'OPTIONS') {
-    console.log("CORS preflight request received");
+    console.log("CORS preflight request received for path:", new URL(request.url).pathname);
     return new Response(null, {
       status: 204,
       headers: corsHeaders
@@ -152,13 +152,51 @@ function authenticateRequest(request) {
   return { authenticated: true, userId: payload.userId };
 }
 
-// Endpointy API pro produkty - UPRAVENO pro použití nových handleru
+// Endpointy API pro produkty - UPRAVENO pro diagnostiku a řešení problémů
 async function handleProductsRequest(request, url, env) {
   // Rozlišení podle cesty
   const path = url.pathname;
-  console.log("Products path:", path);
+  console.log("Products path:", path, "Method:", request.method);
   
-  // UPRAVENO - Zpracování speciálních produktových endpointů
+  // Diagnostika dostupnosti KV namespace
+  const hasKVNamespace = !!(env && env.PRODUKTY);
+  console.log("KV namespace check - PRODUKTY exists:", hasKVNamespace);
+  
+  // UPRAVENO - Diagnostické zpracování problémových endpointů
+  
+  // Speciální diagnostika pro import ceníku
+  if (path === '/products/import/cenik') {
+    console.log("Import ceník endpoint hit with method:", request.method);
+    // Test dostupnosti endpointu
+    if (request.method === 'GET') {
+      return new Response(JSON.stringify({ 
+        message: 'Import ceník endpoint je dostupný, pro import použijte POST metodu s XML daty',
+        kv_status: hasKVNamespace ? 'KV namespace exists' : 'KV namespace missing'
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json', ...corsHeaders }
+      });
+    }
+    
+    if (request.method === 'POST') {
+      return handleImportXmlCenik(request, env);
+    }
+  }
+  
+  // Diagnostika pro výrobce
+  if (path === '/products/manufacturers') {
+    console.log("Manufacturers endpoint hit with method:", request.method);
+    if (request.method === 'GET') {
+      // Zkusit vrátit alespoň prázdné pole, pokud chybí namespace
+      if (!hasKVNamespace) {
+        return new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json', ...corsHeaders }
+        });
+      }
+      return handleGetProductManufacturers(request, env);
+    }
+  }
   
   // Import z XML ceníku
   if (path === '/products/import/cenik' && request.method === 'POST') {
@@ -182,11 +220,25 @@ async function handleProductsRequest(request, url, env) {
   
   // Získání kategorií produktů
   if (path === '/products/categories' && request.method === 'GET') {
+    // Zkusit vrátit alespoň prázdné pole, pokud chybí namespace
+    if (!hasKVNamespace) {
+      return new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json', ...corsHeaders }
+      });
+    }
     return handleGetProductCategories(request, env);
   }
   
   // Získání výrobců produktů
   if (path === '/products/manufacturers' && request.method === 'GET') {
+    // Zkusit vrátit alespoň prázdné pole, pokud chybí namespace
+    if (!hasKVNamespace) {
+      return new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json', ...corsHeaders }
+      });
+    }
     return handleGetProductManufacturers(request, env);
   }
   
@@ -201,6 +253,22 @@ async function handleProductsRequest(request, url, env) {
   // GET /products - Seznam všech produktů
   if (path === '/products' && request.method === 'GET') {
     // UPRAVENO - Použití nového handleru pro získání produktů
+    if (!hasKVNamespace) {
+      // Vrátit simulovaná data, pokud není KV namespace
+      return new Response(JSON.stringify({
+        products: products,
+        pagination: {
+          page: 1,
+          limit: 50,
+          totalProducts: products.length,
+          totalPages: 1
+        },
+        lastUpdated: new Date().toISOString()
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json', ...corsHeaders }
+      });
+    }
     return handleGetProducts(request, env);
   }
   
@@ -331,7 +399,11 @@ async function handleProductsRequest(request, url, env) {
   }
   
   // Pokud neodpovídá žádný endpoint
-  return new Response(JSON.stringify({ error: 'Endpoint nenalezen' }), {
+  return new Response(JSON.stringify({ 
+    error: 'Endpoint nenalezen', 
+    path: path,
+    method: request.method
+  }), {
     status: 404,
     headers: { 'Content-Type': 'application/json', ...corsHeaders }
   });
@@ -595,7 +667,10 @@ async function handleRequest(request, env) {
   
   // Testovací endpoint
   if (url.pathname === '/' && request.method === 'GET') {
-    return new Response(JSON.stringify({ message: 'API běží!' }), {
+    return new Response(JSON.stringify({ 
+      message: 'API běží!',
+      kv_status: env && env.PRODUKTY ? 'KV namespace exists' : 'KV namespace missing'
+    }), {
       headers: { 'Content-Type': 'application/json', ...corsHeaders }
     });
   }
@@ -635,7 +710,11 @@ async function handleRequest(request, env) {
   }
   
   // Pokud neodpovídá žádný endpoint
-  return new Response(JSON.stringify({ error: 'Endpoint nenalezen' }), {
+  return new Response(JSON.stringify({ 
+    error: 'Endpoint nenalezen',
+    path: url.pathname,
+    method: request.method
+  }), {
     status: 404,
     headers: { 'Content-Type': 'application/json', ...corsHeaders }
   });
@@ -645,13 +724,18 @@ async function handleRequest(request, env) {
 export default {
   async fetch(request, env, ctx) {
     try {
+      // Diagnostický výpis
+      console.log("Worker started, KV namespaces:", 
+        Object.keys(env || {}).filter(key => typeof env[key] === 'object'));
+      
       // UPRAVENO - předáváme env parametr pro přístup ke KV Storage
       return await handleRequest(request, env);
     } catch (error) {
       console.error("Unhandled error:", error);
       return new Response(JSON.stringify({ 
         error: 'Neočekávaná chyba serveru', 
-        details: error.message 
+        details: error.message,
+        stack: error.stack
       }), {
         status: 500,
         headers: { 'Content-Type': 'application/json', ...corsHeaders }
