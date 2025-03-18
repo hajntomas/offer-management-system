@@ -1,10 +1,10 @@
 // frontend/src/services/api.ts
-// Aktualizovaná verze s fallback mechanismy
+// Aktualizovaná verze pro použití lokálních proxy funkcí místo přímého volání Cloudflare Worker
 
 // API URL konfigurace
 const LOGIN_URL = '/api/auth/login';
-// ZMĚNA ZDE - změňte na přímou URL backend API
-const API_URL = 'https://broad-darkness-f0a6.hajn-tomas.workers.dev'; // Pro ostatní API volání
+// ZMĚNA ZDE - používáme lokální proxy místo přímého volání Cloudflare Worker
+const API_URL = '/api/proxy'; // Lokální proxy pro všechna API volání
 
 // Přidání podpory pro debug režim
 const DEBUG = true; // V produkci nastavit na false
@@ -166,7 +166,7 @@ const handleResponse = async <T>(response: Response): Promise<T> => {
 
 // Pomocná funkce pro sestavení URL s parametry
 const buildUrlWithParams = (baseUrl: string, params: Record<string, any>): string => {
-  const url = new URL(baseUrl);
+  const url = new URL(baseUrl, window.location.origin);
   
   // Přidání parametrů, které nejsou undefined nebo prázdné řetězce
   Object.entries(params).forEach(([key, value]) => {
@@ -182,6 +182,7 @@ const buildUrlWithParams = (baseUrl: string, params: Record<string, any>): strin
 export const api = {
   // Pomocná funkce pro přímé testování API endpointů
   testEndpoint: async (path: string): Promise<any> => {
+    // Pro přímé externí URL zachováme původní URL, jinak předpokládáme relativní cestu k proxy
     const url = path.startsWith('http') ? path : `${API_URL}${path.startsWith('/') ? path : '/' + path}`;
     if (DEBUG) console.log(`🔍 Testing endpoint: ${url}`);
     
@@ -542,7 +543,123 @@ export const api = {
     }
   },
   
-  // Ostatní původní metody zůstávají stejné...
+  // Nabídky
+  getOffers: async (): Promise<Offer[]> => {
+    logApiCall('offers', 'GET');
+    try {
+      const response = await fetch(`${API_URL}/offers`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          ...getAuthHeader()
+        }
+      });
+      
+      return handleResponse<Offer[]>(response);
+    } catch (error: any) {
+      if (DEBUG) console.error('❌ Chyba načítání nabídek:', error);
+      throw new Error(error.message || 'Chyba při načítání nabídek');
+    }
+  },
+  
+  getOffer: async (id: string): Promise<Offer> => {
+    logApiCall(`offers/${id}`, 'GET');
+    try {
+      const response = await fetch(`${API_URL}/offers/${id}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          ...getAuthHeader()
+        }
+      });
+      
+      return handleResponse<Offer>(response);
+    } catch (error: any) {
+      if (DEBUG) console.error(`❌ Chyba načítání nabídky ${id}:`, error);
+      throw new Error(error.message || 'Chyba při načítání nabídky');
+    }
+  },
+  
+  createOffer: async (offer: Omit<Offer, 'id' | 'cislo' | 'datum_vytvoreni'>): Promise<Offer> => {
+    logApiCall('offers', 'POST');
+    try {
+      const response = await fetch(`${API_URL}/offers`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          ...getAuthHeader()
+        },
+        body: JSON.stringify(offer)
+      });
+      
+      return handleResponse<Offer>(response);
+    } catch (error: any) {
+      if (DEBUG) console.error('❌ Chyba vytváření nabídky:', error);
+      throw new Error(error.message || 'Chyba při vytváření nabídky');
+    }
+  },
+  
+  updateOffer: async (id: string, offer: Partial<Offer>): Promise<Offer> => {
+    logApiCall(`offers/${id}`, 'PUT');
+    try {
+      const response = await fetch(`${API_URL}/offers/${id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          ...getAuthHeader()
+        },
+        body: JSON.stringify(offer)
+      });
+      
+      return handleResponse<Offer>(response);
+    } catch (error: any) {
+      if (DEBUG) console.error(`❌ Chyba aktualizace nabídky ${id}:`, error);
+      throw new Error(error.message || 'Chyba při aktualizaci nabídky');
+    }
+  },
+  
+  deleteOffer: async (id: string): Promise<void> => {
+    logApiCall(`offers/${id}`, 'DELETE');
+    try {
+      const response = await fetch(`${API_URL}/offers/${id}`, {
+        method: 'DELETE',
+        headers: {
+          'Accept': 'application/json',
+          ...getAuthHeader()
+        }
+      });
+      
+      await handleResponse(response);
+    } catch (error: any) {
+      if (DEBUG) console.error(`❌ Chyba mazání nabídky ${id}:`, error);
+      throw new Error(error.message || 'Chyba při mazání nabídky');
+    }
+  },
+  
+  // AI asistence
+  getAiSuggestion: async (query: string, context: any): Promise<any> => {
+    logApiCall('ai/suggest', 'POST');
+    try {
+      const response = await fetch(`${API_URL}/ai/suggest`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          ...getAuthHeader()
+        },
+        body: JSON.stringify({ query, context })
+      });
+      
+      return handleResponse(response);
+    } catch (error: any) {
+      if (DEBUG) console.error('❌ Chyba AI asistence:', error);
+      throw new Error(error.message || 'Chyba při získávání AI asistence');
+    }
+  },
   
   // Původní metoda pro import - zachována pro zpětnou kompatibilitu
   importProducts: async (xmlData: string): Promise<{ message: string, count: number }> => {
@@ -568,7 +685,5 @@ export const api = {
         count: 5
       };
     }
-  },
-  
-  // Zbytek kódu zůstává stejný...
+  }
 };
