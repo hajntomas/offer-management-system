@@ -3,8 +3,8 @@
 
 // API URL konfigurace
 const LOGIN_URL = '/api/auth/login';
-// ZMĚNA ZDE - používáme lokální proxy místo přímého volání Cloudflare Worker
-const API_URL = '/api/proxy'; // Lokální proxy pro všechna API volání
+// Použijeme přímé volání Worker API
+const API_URL = 'https://broad-darkness-f0a6.hajn-tomas.workers.dev'; // Přímé volání Cloudflare Worker
 
 // Přidání podpory pro debug režim
 const DEBUG = true; // V produkci nastavit na false
