@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "include": ["/*"],
+  "exclude": [
+    "/build/*",
+    "/assets/*"
+  ],
+  "routes": [
+    {
+      "pattern": "/api/*",
+      "script": null
+    },
+    {
+      "pattern": "/*",
+      "serve": "/index.html"
+    }
+  ]
+}
