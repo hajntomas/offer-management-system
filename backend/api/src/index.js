@@ -14,9 +14,9 @@ import {
   handleGetProductImportHistory
 } from './handlers/productHandlers.js';
 
-// CORS hlavičky pro cross-origin požadavky
+// CORS hlavičky pro cross-origin požadavky (aktualizovaná verze)
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',  // Změněno z https://offer-management-system.pages.dev na * pro vývoj
+  'Access-Control-Allow-Origin': '*',  // Povolit přístup z jakékoliv domény
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization, Accept',
   'Access-Control-Max-Age': '86400',
@@ -45,61 +45,18 @@ const users = {
   }
 };
 
-// Simulovaná data produktů pro zpětnou kompatibilitu
-const products = [
-  {
-    id: '1',
-    kod: 'NB-DELL-XPS15',
-    nazev: 'Dell XPS 15',
-    cena_bez_dph: 29900,
-    cena_s_dph: 36179,
-    dostupnost: 'skladem',
-    kategorie: 'notebooky',
-    vyrobce: 'Dell',
-    popis: 'Vysoce výkonný notebook s 15" displejem, procesorem Intel Core i7, 16GB RAM a 512GB SSD.'
-  },
-  {
-    id: '2',
-    kod: 'NB-MAC-PRO16',
-    nazev: 'MacBook Pro 16',
-    cena_bez_dph: 59900,
-    cena_s_dph: 72479,
-    dostupnost: 'na objednávku',
-    kategorie: 'notebooky',
-    vyrobce: 'Apple',
-    popis: 'Profesionální notebook s 16" Retina displejem, procesorem M1 Pro, 16GB RAM a 1TB SSD.'
-  },
-  {
-    id: '3',
-    kod: 'PC-GAME-RTX4070',
-    nazev: 'Herní PC RTX 4070',
-    cena_bez_dph: 35900,
-    cena_s_dph: 43439,
-    dostupnost: 'skladem',
-    kategorie: 'počítače',
-    vyrobce: 'Custom',
-    popis: 'Herní počítač s procesorem AMD Ryzen 7, 32GB RAM, 2TB SSD a grafickou kartou NVIDIA RTX 4070.'
+// Přidejte tuto funkci pro jednotné přidání CORS hlaviček
+function addCorsHeaders(response) {
+  const headers = new Headers(response.headers);
+  for (const [key, value] of Object.entries(corsHeaders)) {
+    headers.set(key, value);
   }
-];
-
-// Simulovaná data nabídek
-const offers = [
-  {
-    id: '1',
-    cislo: 'N2023001',
-    nazev: 'Nabídka IT vybavení pro firmu ABC',
-    zakaznik: 'ABC, s.r.o.',
-    datum_vytvoreni: '2023-08-15',
-    platnost_do: '2023-09-15',
-    celkova_cena_bez_dph: 125700,
-    celkova_cena_s_dph: 152097,
-    polozky: [
-      { produkt_id: '1', pocet: 3, cena_bez_dph: 29900, cena_s_dph: 36179 },
-      { produkt_id: '3', pocet: 1, cena_bez_dph: 35900, cena_s_dph: 43439 }
-    ],
-    stav: 'aktivní'
-  }
-];
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers
+  });
+}
 
 // Pomocné funkce
 function parseJwt(token) {
@@ -211,13 +168,13 @@ async function handleProductsRequest(request, url, env) {
       }
     }
     
-    return new Response(JSON.stringify(debugInfo, null, 2), {
+    // Return with CORS headers
+    return addCorsHeaders(new Response(JSON.stringify(debugInfo, null, 2), {
       status: 200,
       headers: {
-        'Content-Type': 'application/json',
-        ...corsHeaders
+        'Content-Type': 'application/json'
       }
-    });
+    }));
   }
   
   // UPRAVENO - SPECIFICKÉ ŘEŠENÍ PRO PROBLÉMOVÉ ENDPOINTY
@@ -232,10 +189,10 @@ async function handleProductsRequest(request, url, env) {
         const categoriesFromKV = await env.PRODUKTY.get("product_categories");
         if (categoriesFromKV) {
           console.log("Categories found in KV:", categoriesFromKV);
-          return new Response(categoriesFromKV, {
+          return addCorsHeaders(new Response(categoriesFromKV, {
             status: 200,
-            headers: { 'Content-Type': 'application/json', ...corsHeaders }
-          });
+            headers: { 'Content-Type': 'application/json' }
+          }));
         } else {
           // Inicializace kategorií v KV
           console.log("Initializing categories in KV");
@@ -248,10 +205,10 @@ async function handleProductsRequest(request, url, env) {
     
     // Fallback na simulovaná data pokud KV selhal nebo neexistuje
     console.log("Returning fallback categories");
-    return new Response(JSON.stringify(fallbackCategories), {
+    return addCorsHeaders(new Response(JSON.stringify(fallbackCategories), {
       status: 200,
-      headers: { 'Content-Type': 'application/json', ...corsHeaders }
-    });
+      headers: { 'Content-Type': 'application/json' }
+    }));
   }
   
   // Speciální ošetření pro manufacturers
@@ -264,10 +221,10 @@ async function handleProductsRequest(request, url, env) {
         const manufacturersFromKV = await env.PRODUKTY.get("product_manufacturers");
         if (manufacturersFromKV) {
           console.log("Manufacturers found in KV:", manufacturersFromKV);
-          return new Response(manufacturersFromKV, {
+          return addCorsHeaders(new Response(manufacturersFromKV, {
             status: 200,
-            headers: { 'Content-Type': 'application/json', ...corsHeaders }
-          });
+            headers: { 'Content-Type': 'application/json' }
+          }));
         } else {
           // Inicializace výrobců v KV
           console.log("Initializing manufacturers in KV");
@@ -280,10 +237,10 @@ async function handleProductsRequest(request, url, env) {
     
     // Fallback na simulovaná data pokud KV selhal nebo neexistuje
     console.log("Returning fallback manufacturers");
-    return new Response(JSON.stringify(fallbackManufacturers), {
+    return addCorsHeaders(new Response(JSON.stringify(fallbackManufacturers), {
       status: 200,
-      headers: { 'Content-Type': 'application/json', ...corsHeaders }
-    });
+      headers: { 'Content-Type': 'application/json' }
+    }));
   }
   
   // Speciální diagnostika pro import ceníku
@@ -291,27 +248,28 @@ async function handleProductsRequest(request, url, env) {
     console.log("Import ceník endpoint hit with method:", request.method);
     // Test dostupnosti endpointu
     if (request.method === 'GET') {
-      return new Response(JSON.stringify({ 
+      return addCorsHeaders(new Response(JSON.stringify({ 
         message: 'Import ceník endpoint je dostupný, pro import použijte POST metodu s XML daty',
         kv_status: hasKVNamespace ? 'KV namespace exists' : 'KV namespace missing'
       }), {
         status: 200,
-        headers: { 'Content-Type': 'application/json', ...corsHeaders }
-      });
+        headers: { 'Content-Type': 'application/json' }
+      }));
     }
     
     if (request.method === 'POST') {
       // Pokud není KV namespace, simulujeme úspěšný import
       if (!hasKVNamespace) {
-        return new Response(JSON.stringify({ 
+        return addCorsHeaders(new Response(JSON.stringify({ 
           message: 'Import simulován (bez KV namespace)', 
           count: 5
         }), {
           status: 200,
-          headers: { 'Content-Type': 'application/json', ...corsHeaders }
-        });
+          headers: { 'Content-Type': 'application/json' }
+        }));
       }
-      return handleImportXmlCenik(request, env);
+      const response = await handleImportXmlCenik(request, env);
+      return addCorsHeaders(response);
     }
   }
   
@@ -319,60 +277,64 @@ async function handleProductsRequest(request, url, env) {
   if (path === '/products/import/popisky' && request.method === 'POST') {
     // Pokud není KV namespace, simulujeme úspěšný import
     if (!hasKVNamespace) {
-      return new Response(JSON.stringify({ 
+      return addCorsHeaders(new Response(JSON.stringify({ 
         message: 'Import simulován (bez KV namespace)', 
         count: 5
       }), {
         status: 200,
-        headers: { 'Content-Type': 'application/json', ...corsHeaders }
-      });
+        headers: { 'Content-Type': 'application/json' }
+      }));
     }
-    return handleImportXmlPopisky(request, env);
+    const response = await handleImportXmlPopisky(request, env);
+    return addCorsHeaders(response);
   }
   
   // Import z Excel souboru
   if (path === '/products/import/excel' && request.method === 'POST') {
     // Pokud není KV namespace, simulujeme úspěšný import
     if (!hasKVNamespace) {
-      return new Response(JSON.stringify({ 
+      return addCorsHeaders(new Response(JSON.stringify({ 
         message: 'Import simulován (bez KV namespace)', 
         count: 5,
         filename: "test.xlsx"
       }), {
         status: 200,
-        headers: { 'Content-Type': 'application/json', ...corsHeaders }
-      });
+        headers: { 'Content-Type': 'application/json' }
+      }));
     }
-    return handleImportExcel(request, env);
+    const response = await handleImportExcel(request, env);
+    return addCorsHeaders(response);
   }
   
   // Ruční sloučení dat produktů
   if (path === '/products/merge' && request.method === 'POST') {
     // Pokud není KV namespace, simulujeme úspěšné sloučení
     if (!hasKVNamespace) {
-      return new Response(JSON.stringify({ 
+      return addCorsHeaders(new Response(JSON.stringify({ 
         message: 'Sloučení simulováno (bez KV namespace)', 
         count: products.length
       }), {
         status: 200,
-        headers: { 'Content-Type': 'application/json', ...corsHeaders }
-      });
+        headers: { 'Content-Type': 'application/json' }
+      }));
     }
-    return handleMergeProductData(request, env);
+    const response = await handleMergeProductData(request, env);
+    return addCorsHeaders(response);
   }
   
   // Získání historie importů produktů
   if (path === '/products/import-history' && request.method === 'GET') {
     // Pokud není KV namespace, vraťte prázdnou historii
     if (!hasKVNamespace) {
-      return new Response(JSON.stringify({
+      return addCorsHeaders(new Response(JSON.stringify({
         import_history: []
       }), {
         status: 200,
-        headers: { 'Content-Type': 'application/json', ...corsHeaders }
-      });
+        headers: { 'Content-Type': 'application/json' }
+      }));
     }
-    return handleGetProductImportHistory(request, env);
+    const response = await handleGetProductImportHistory(request, env);
+    return addCorsHeaders(response);
   }
   
   // Extrakce ID produktu z URL
@@ -383,7 +345,7 @@ async function handleProductsRequest(request, url, env) {
     // UPRAVENO - Použití nového handleru pro získání produktů
     if (!hasKVNamespace) {
       // Vrátit simulovaná data, pokud není KV namespace
-      return new Response(JSON.stringify({
+      return addCorsHeaders(new Response(JSON.stringify({
         products: products,
         pagination: {
           page: 1,
@@ -394,10 +356,11 @@ async function handleProductsRequest(request, url, env) {
         lastUpdated: new Date().toISOString()
       }), {
         status: 200,
-        headers: { 'Content-Type': 'application/json', ...corsHeaders }
-      });
+        headers: { 'Content-Type': 'application/json' }
+      }));
     }
-    return handleGetProducts(request, env);
+    const response = await handleGetProducts(request, env);
+    return addCorsHeaders(response);
   }
   
   // GET /products/:id - Detail produktu
@@ -407,17 +370,18 @@ async function handleProductsRequest(request, url, env) {
       // Vrátit simulovaná data, pokud není KV namespace
       const product = products.find(p => p.id === productId);
       if (!product) {
-        return new Response(JSON.stringify({ error: 'Produkt nenalezen' }), {
+        return addCorsHeaders(new Response(JSON.stringify({ error: 'Produkt nenalezen' }), {
           status: 404,
-          headers: { 'Content-Type': 'application/json', ...corsHeaders }
-        });
+          headers: { 'Content-Type': 'application/json' }
+        }));
       }
-      return new Response(JSON.stringify(product), {
+      return addCorsHeaders(new Response(JSON.stringify(product), {
         status: 200,
-        headers: { 'Content-Type': 'application/json', ...corsHeaders }
-      });
+        headers: { 'Content-Type': 'application/json' }
+      }));
     }
-    return handleGetProductDetail(request, env, productId);
+    const response = await handleGetProductDetail(request, env, productId);
+    return addCorsHeaders(response);
   }
   
   // Zachování původního kódu pro ostatní operace
@@ -436,16 +400,16 @@ async function handleProductsRequest(request, url, env) {
       // Přidání do kolekce (v reálné aplikaci by se ukládalo do KV)
       products.push(newProduct);
       
-      return new Response(JSON.stringify(newProduct), {
+      return addCorsHeaders(new Response(JSON.stringify(newProduct), {
         status: 201,
-        headers: { 'Content-Type': 'application/json', ...corsHeaders }
-      });
+        headers: { 'Content-Type': 'application/json' }
+      }));
     } catch (error) {
       console.error("Error creating product:", error);
-      return new Response(JSON.stringify({ error: 'Neplatná data produktu' }), {
+      return addCorsHeaders(new Response(JSON.stringify({ error: 'Neplatná data produktu' }), {
         status: 400,
-        headers: { 'Content-Type': 'application/json', ...corsHeaders }
-      });
+        headers: { 'Content-Type': 'application/json' }
+      }));
     }
   }
   
@@ -456,10 +420,10 @@ async function handleProductsRequest(request, url, env) {
       const productIndex = products.findIndex(p => p.id === productId);
       
       if (productIndex === -1) {
-        return new Response(JSON.stringify({ error: 'Produkt nenalezen' }), {
+        return addCorsHeaders(new Response(JSON.stringify({ error: 'Produkt nenalezen' }), {
           status: 404,
-          headers: { 'Content-Type': 'application/json', ...corsHeaders }
-        });
+          headers: { 'Content-Type': 'application/json' }
+        }));
       }
       
       // Aktualizace produktu
@@ -469,15 +433,15 @@ async function handleProductsRequest(request, url, env) {
         id: productId // Zachováváme původní ID
       };
       
-      return new Response(JSON.stringify(products[productIndex]), {
-        headers: { 'Content-Type': 'application/json', ...corsHeaders }
-      });
+      return addCorsHeaders(new Response(JSON.stringify(products[productIndex]), {
+        headers: { 'Content-Type': 'application/json' }
+      }));
     } catch (error) {
       console.error("Error updating product:", error);
-      return new Response(JSON.stringify({ error: 'Neplatná data produktu' }), {
+      return addCorsHeaders(new Response(JSON.stringify({ error: 'Neplatná data produktu' }), {
         status: 400,
-        headers: { 'Content-Type': 'application/json', ...corsHeaders }
-      });
+        headers: { 'Content-Type': 'application/json' }
+      }));
     }
   }
   
@@ -486,18 +450,18 @@ async function handleProductsRequest(request, url, env) {
     const productIndex = products.findIndex(p => p.id === productId);
     
     if (productIndex === -1) {
-      return new Response(JSON.stringify({ error: 'Produkt nenalezen' }), {
+      return addCorsHeaders(new Response(JSON.stringify({ error: 'Produkt nenalezen' }), {
         status: 404,
-        headers: { 'Content-Type': 'application/json', ...corsHeaders }
-      });
+        headers: { 'Content-Type': 'application/json' }
+      }));
     }
     
     // Smazání produktu
     products.splice(productIndex, 1);
     
-    return new Response(JSON.stringify({ message: 'Produkt byl smazán' }), {
-      headers: { 'Content-Type': 'application/json', ...corsHeaders }
-    });
+    return addCorsHeaders(new Response(JSON.stringify({ message: 'Produkt byl smazán' }), {
+      headers: { 'Content-Type': 'application/json' }
+    }));
   }
   
   // Obecný endpoint pro import produktů z XML pro zpětnou kompatibilitu
@@ -516,50 +480,52 @@ async function handleProductsRequest(request, url, env) {
       }
       
       if (!xmlText) {
-        return new Response(JSON.stringify({ error: 'Chybí XML data' }), {
+        return addCorsHeaders(new Response(JSON.stringify({ error: 'Chybí XML data' }), {
           status: 400,
-          headers: { 'Content-Type': 'application/json', ...corsHeaders }
-        });
+          headers: { 'Content-Type': 'application/json' }
+        }));
       }
       
       // Pokud není KV namespace, simulujeme úspěšný import
       if (!hasKVNamespace) {
-        return new Response(JSON.stringify({ 
+        return addCorsHeaders(new Response(JSON.stringify({ 
           message: 'Import simulován (bez KV namespace)', 
           count: 5
         }), {
           status: 200,
-          headers: { 'Content-Type': 'application/json', ...corsHeaders }
-        });
+          headers: { 'Content-Type': 'application/json' }
+        }));
       }
       
       // Přesměrování na nový handler pro XML ceník
-      return handleImportXmlCenik(new Request(request.url, {
+      const importRequest = new Request(request.url, {
         method: 'POST',
         headers: request.headers,
         body: JSON.stringify({ xml: xmlText })
-      }), env);
+      });
+      const response = await handleImportXmlCenik(importRequest, env);
+      return addCorsHeaders(response);
     } catch (error) {
       console.error("Error importing products:", error);
-      return new Response(JSON.stringify({ 
+      return addCorsHeaders(new Response(JSON.stringify({ 
         error: 'Chyba při importu', 
         details: error.message 
       }), {
         status: 400,
-        headers: { 'Content-Type': 'application/json', ...corsHeaders }
-      });
+        headers: { 'Content-Type': 'application/json' }
+      }));
     }
   }
   
   // Pokud neodpovídá žádný endpoint
-  return new Response(JSON.stringify({ 
+  return addCorsHeaders(new Response(JSON.stringify({ 
     error: 'Endpoint nenalezen', 
     path: path,
     method: request.method
   }), {
     status: 404,
-    headers: { 'Content-Type': 'application/json', ...corsHeaders }
-  });
+    headers: { 'Content-Type': 'application/json' }
+  }));
 }
 
 // Endpointy API pro nabídky - původní implementace
@@ -570,24 +536,24 @@ async function handleOffersRequest(request, url) {
   
   // GET /offers - Seznam všech nabídek
   if (path === '/offers' && request.method === 'GET') {
-    return new Response(JSON.stringify(offers), {
-      headers: { 'Content-Type': 'application/json', ...corsHeaders }
-    });
+    return addCorsHeaders(new Response(JSON.stringify(offers), {
+      headers: { 'Content-Type': 'application/json' }
+    }));
   }
   
   // GET /offers/:id - Detail nabídky
   if (offerId && request.method === 'GET') {
     const offer = offers.find(o => o.id === offerId);
     if (!offer) {
-      return new Response(JSON.stringify({ error: 'Nabídka nenalezena' }), {
+      return addCorsHeaders(new Response(JSON.stringify({ error: 'Nabídka nenalezena' }), {
         status: 404,
-        headers: { 'Content-Type': 'application/json', ...corsHeaders }
-      });
+        headers: { 'Content-Type': 'application/json' }
+      }));
     }
     
-    return new Response(JSON.stringify(offer), {
-      headers: { 'Content-Type': 'application/json', ...corsHeaders }
-    });
+    return addCorsHeaders(new Response(JSON.stringify(offer), {
+      headers: { 'Content-Type': 'application/json' }
+    }));
   }
   
   // POST /offers - Vytvoření nové nabídky
@@ -606,16 +572,16 @@ async function handleOffersRequest(request, url) {
       // Přidání do kolekce (v reálné aplikaci by se ukládalo do KV)
       offers.push(newOffer);
       
-      return new Response(JSON.stringify(newOffer), {
+      return addCorsHeaders(new Response(JSON.stringify(newOffer), {
         status: 201,
-        headers: { 'Content-Type': 'application/json', ...corsHeaders }
-      });
+        headers: { 'Content-Type': 'application/json' }
+      }));
     } catch (error) {
       console.error("Error creating offer:", error);
-      return new Response(JSON.stringify({ error: 'Neplatná data nabídky' }), {
+      return addCorsHeaders(new Response(JSON.stringify({ error: 'Neplatná data nabídky' }), {
         status: 400,
-        headers: { 'Content-Type': 'application/json', ...corsHeaders }
-      });
+        headers: { 'Content-Type': 'application/json' }
+      }));
     }
   }
   
@@ -626,10 +592,10 @@ async function handleOffersRequest(request, url) {
       const offerIndex = offers.findIndex(o => o.id === offerId);
       
       if (offerIndex === -1) {
-        return new Response(JSON.stringify({ error: 'Nabídka nenalezena' }), {
+        return addCorsHeaders(new Response(JSON.stringify({ error: 'Nabídka nenalezena' }), {
           status: 404,
-          headers: { 'Content-Type': 'application/json', ...corsHeaders }
-        });
+          headers: { 'Content-Type': 'application/json' }
+        }));
       }
       
       // Aktualizace nabídky
@@ -639,15 +605,15 @@ async function handleOffersRequest(request, url) {
         id: offerId // Zachováváme původní ID
       };
       
-      return new Response(JSON.stringify(offers[offerIndex]), {
-        headers: { 'Content-Type': 'application/json', ...corsHeaders }
-      });
+      return addCorsHeaders(new Response(JSON.stringify(offers[offerIndex]), {
+        headers: { 'Content-Type': 'application/json' }
+      }));
     } catch (error) {
       console.error("Error updating offer:", error);
-      return new Response(JSON.stringify({ error: 'Neplatná data nabídky' }), {
+      return addCorsHeaders(new Response(JSON.stringify({ error: 'Neplatná data nabídky' }), {
         status: 400,
-        headers: { 'Content-Type': 'application/json', ...corsHeaders }
-      });
+        headers: { 'Content-Type': 'application/json' }
+      }));
     }
   }
   
@@ -656,25 +622,25 @@ async function handleOffersRequest(request, url) {
     const offerIndex = offers.findIndex(o => o.id === offerId);
     
     if (offerIndex === -1) {
-      return new Response(JSON.stringify({ error: 'Nabídka nenalezena' }), {
+      return addCorsHeaders(new Response(JSON.stringify({ error: 'Nabídka nenalezena' }), {
         status: 404,
-        headers: { 'Content-Type': 'application/json', ...corsHeaders }
-      });
+        headers: { 'Content-Type': 'application/json' }
+      }));
     }
     
     // Smazání nabídky
     offers.splice(offerIndex, 1);
     
-    return new Response(JSON.stringify({ message: 'Nabídka byla smazána' }), {
-      headers: { 'Content-Type': 'application/json', ...corsHeaders }
-    });
+    return addCorsHeaders(new Response(JSON.stringify({ message: 'Nabídka byla smazána' }), {
+      headers: { 'Content-Type': 'application/json' }
+    }));
   }
   
   // Pokud neodpovídá žádný endpoint
-  return new Response(JSON.stringify({ error: 'Endpoint nenalezen' }), {
+  return addCorsHeaders(new Response(JSON.stringify({ error: 'Endpoint nenalezen' }), {
     status: 404,
-    headers: { 'Content-Type': 'application/json', ...corsHeaders }
-  });
+    headers: { 'Content-Type': 'application/json' }
+  }));
 }
 
 // Endpoint pro AI asistenci - původní implementace
@@ -713,29 +679,29 @@ async function handleAiRequest(request, url) {
       // Simulace zpoždění reálného API volání
       await new Promise(resolve => setTimeout(resolve, 500));
       
-      return new Response(JSON.stringify({
+      return addCorsHeaders(new Response(JSON.stringify({
         success: true,
         result: mockAiResponses[responseType]
       }), {
-        headers: { 'Content-Type': 'application/json', ...corsHeaders }
-      });
+        headers: { 'Content-Type': 'application/json' }
+      }));
     } catch (error) {
       console.error("Error processing AI request:", error);
-      return new Response(JSON.stringify({ 
+      return addCorsHeaders(new Response(JSON.stringify({ 
         error: 'Chyba při zpracování AI požadavku', 
         details: error.message 
       }), {
         status: 400,
-        headers: { 'Content-Type': 'application/json', ...corsHeaders }
-      });
+        headers: { 'Content-Type': 'application/json' }
+      }));
     }
   }
   
   // Pokud neodpovídá žádný endpoint
-  return new Response(JSON.stringify({ error: 'Endpoint nenalezen' }), {
+  return addCorsHeaders(new Response(JSON.stringify({ error: 'Endpoint nenalezen' }), {
     status: 404,
-    headers: { 'Content-Type': 'application/json', ...corsHeaders }
-  });
+    headers: { 'Content-Type': 'application/json' }
+  }));
 }
 
 // Přihlašovací endpoint - původní implementace
@@ -749,19 +715,19 @@ async function handleAuthRequest(request, url) {
       const user = users[email];
       if (!user) {
         console.log("User not found");
-        return new Response(JSON.stringify({ error: 'Neplatné přihlašovací údaje' }), {
+        return addCorsHeaders(new Response(JSON.stringify({ error: 'Neplatné přihlašovací údaje' }), {
           status: 401,
-          headers: { 'Content-Type': 'application/json', ...corsHeaders }
-        });
+          headers: { 'Content-Type': 'application/json' }
+        }));
       }
       
       // Kontrola hesla
       if (user.passwordHash !== password) {
         console.log("Invalid password");
-        return new Response(JSON.stringify({ error: 'Neplatné přihlašovací údaje' }), {
+        return addCorsHeaders(new Response(JSON.stringify({ error: 'Neplatné přihlašovací údaje' }), {
           status: 401,
-          headers: { 'Content-Type': 'application/json', ...corsHeaders }
-        });
+          headers: { 'Content-Type': 'application/json' }
+        }));
       }
       
       // Vytvoření tokenu (zjednodušené)
@@ -779,7 +745,7 @@ async function handleAuthRequest(request, url) {
       console.log("Login successful, token generated");
       
       // Vrácení odpovědi
-      return new Response(JSON.stringify({
+      return addCorsHeaders(new Response(JSON.stringify({
         accessToken,
         user: {
           id: user.id,
@@ -788,25 +754,25 @@ async function handleAuthRequest(request, url) {
           role: user.role
         }
       }), {
-        headers: { 'Content-Type': 'application/json', ...corsHeaders }
-      });
+        headers: { 'Content-Type': 'application/json' }
+      }));
     } catch (error) {
       console.error("Login error:", error);
-      return new Response(JSON.stringify({ 
+      return addCorsHeaders(new Response(JSON.stringify({ 
         error: 'Chyba při přihlašování', 
         details: error.message 
       }), {
         status: 400,
-        headers: { 'Content-Type': 'application/json', ...corsHeaders }
-      });
+        headers: { 'Content-Type': 'application/json' }
+      }));
     }
   }
   
   // Pokud neodpovídá žádný endpoint
-  return new Response(JSON.stringify({ error: 'Endpoint nenalezen' }), {
+  return addCorsHeaders(new Response(JSON.stringify({ error: 'Endpoint nenalezen' }), {
     status: 404,
-    headers: { 'Content-Type': 'application/json', ...corsHeaders }
-  });
+    headers: { 'Content-Type': 'application/json' }
+  }));
 }
 
 // Hlavní funkce pro zpracování požadavků - UPRAVENO pro předání env parametru
@@ -820,26 +786,26 @@ async function handleRequest(request, env) {
   
   // PŘIDÁNO - Diagnostický endpoint pro testování
   if (url.pathname === '/debug/env') {
-    return new Response(JSON.stringify({
+    return addCorsHeaders(new Response(JSON.stringify({
       timestamp: new Date().toISOString(),
       env_keys: Object.keys(env || {}),
       has_produkty: !!(env && env.PRODUKTY),
       has_users: !!(env && env.USERS),
       cloudflare_worker: true
     }, null, 2), {
-      headers: { 'Content-Type': 'application/json', ...corsHeaders }
-    });
+      headers: { 'Content-Type': 'application/json' }
+    }));
   }
   
   // Testovací endpoint
   if (url.pathname === '/' && request.method === 'GET') {
-    return new Response(JSON.stringify({ 
+    return addCorsHeaders(new Response(JSON.stringify({ 
       message: 'API běží!',
       kv_status: env && env.PRODUKTY ? 'KV namespace exists' : 'KV namespace missing',
       timestamp: new Date().toISOString()
     }), {
-      headers: { 'Content-Type': 'application/json', ...corsHeaders }
-    });
+      headers: { 'Content-Type': 'application/json' }
+    }));
   }
   
   // Přesměrování podle cesty
@@ -856,10 +822,10 @@ async function handleRequest(request, env) {
     // Ověření autentizace pro všechny požadavky na nabídky
     const auth = authenticateRequest(request);
     if (!auth.authenticated) {
-      return new Response(JSON.stringify({ error: auth.error }), {
+      return addCorsHeaders(new Response(JSON.stringify({ error: auth.error }), {
         status: 401,
-        headers: { 'Content-Type': 'application/json', ...corsHeaders }
-      });
+        headers: { 'Content-Type': 'application/json' }
+      }));
     }
     return handleOffersRequest(request, url);
   }
@@ -868,24 +834,80 @@ async function handleRequest(request, env) {
     // Ověření autentizace pro všechny AI požadavky
     const auth = authenticateRequest(request);
     if (!auth.authenticated) {
-      return new Response(JSON.stringify({ error: auth.error }), {
+      return addCorsHeaders(new Response(JSON.stringify({ error: auth.error }), {
         status: 401,
-        headers: { 'Content-Type': 'application/json', ...corsHeaders }
-      });
+        headers: { 'Content-Type': 'application/json' }
+      }));
     }
     return handleAiRequest(request, url);
   }
   
   // Pokud neodpovídá žádný endpoint
-  return new Response(JSON.stringify({ 
+  return addCorsHeaders(new Response(JSON.stringify({ 
     error: 'Endpoint nenalezen',
     path: url.pathname,
     method: request.method
   }), {
     status: 404,
-    headers: { 'Content-Type': 'application/json', ...corsHeaders }
-  });
+    headers: { 'Content-Type': 'application/json' }
+  }));
 }
+
+// Simulovaná data produktů pro zpětnou kompatibilitu
+const products = [
+  {
+    id: '1',
+    kod: 'NB-DELL-XPS15',
+    nazev: 'Dell XPS 15',
+    cena_bez_dph: 29900,
+    cena_s_dph: 36179,
+    dostupnost: 'skladem',
+    kategorie: 'notebooky',
+    vyrobce: 'Dell',
+    popis: 'Vysoce výkonný notebook s 15" displejem, procesorem Intel Core i7, 16GB RAM a 512GB SSD.'
+  },
+  {
+    id: '2',
+    kod: 'NB-MAC-PRO16',
+    nazev: 'MacBook Pro 16',
+    cena_bez_dph: 59900,
+    cena_s_dph: 72479,
+    dostupnost: 'na objednávku',
+    kategorie: 'notebooky',
+    vyrobce: 'Apple',
+    popis: 'Profesionální notebook s 16" Retina displejem, procesorem M1 Pro, 16GB RAM a 1TB SSD.'
+  },
+  {
+    id: '3',
+    kod: 'PC-GAME-RTX4070',
+    nazev: 'Herní PC RTX 4070',
+    cena_bez_dph: 35900,
+    cena_s_dph: 43439,
+    dostupnost: 'skladem',
+    kategorie: 'počítače',
+    vyrobce: 'Custom',
+    popis: 'Herní počítač s procesorem AMD Ryzen 7, 32GB RAM, 2TB SSD a grafickou kartou NVIDIA RTX 4070.'
+  }
+];
+
+// Simulovaná data nabídek
+const offers = [
+  {
+    id: '1',
+    cislo: 'N2023001',
+    nazev: 'Nabídka IT vybavení pro firmu ABC',
+    zakaznik: 'ABC, s.r.o.',
+    datum_vytvoreni: '2023-08-15',
+    platnost_do: '2023-09-15',
+    celkova_cena_bez_dph: 125700,
+    celkova_cena_s_dph: 152097,
+    polozky: [
+      { produkt_id: '1', pocet: 3, cena_bez_dph: 29900, cena_s_dph: 36179 },
+      { produkt_id: '3', pocet: 1, cena_bez_dph: 35900, cena_s_dph: 43439 }
+    ],
+    stav: 'aktivní'
+  }
+];
 
 // Export pro Cloudflare Worker
 export default {
@@ -899,7 +921,7 @@ export default {
       return await handleRequest(request, env);
     } catch (error) {
       console.error("Unhandled error:", error);
-      return new Response(JSON.stringify({ 
+      return addCorsHeaders(new Response(JSON.stringify({ 
         error: 'Neočekávaná chyba serveru', 
         details: error.message,
         stack: error.stack,
@@ -907,8 +929,8 @@ export default {
         method: request.method
       }), {
         status: 500,
-        headers: { 'Content-Type': 'application/json', ...corsHeaders }
-      });
+        headers: { 'Content-Type': 'application/json' }
+      }));
     }
   }
 };
