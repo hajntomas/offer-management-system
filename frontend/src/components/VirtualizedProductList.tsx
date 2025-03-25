@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Search, Filter, ChevronDown, ChevronUp, ArrowUp, ArrowDown } from 'lucide-react';
+import { Search, Filter, ChevronDown, ChevronUp, ArrowUp, ArrowDown } from '../components/Icons';
 
 const VirtualizedProductList = () => {
   // Stav seznamu a položek
