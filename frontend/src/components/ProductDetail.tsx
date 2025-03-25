@@ -1,5 +1,5 @@
 // frontend/src/components/ProductDetail.tsx
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { api, Product } from '../services/api';
 
 interface ProductDetailProps {
@@ -8,13 +8,17 @@ interface ProductDetailProps {
 }
 
 export function ProductDetail({ productId, onClose }: ProductDetailProps) {
+  // Stav
   const [product, setProduct] = useState<Product | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   
   // Načtení detailu produktu
   useEffect(() => {
+    // Pomocná funkce pro načtení produktu
     const fetchProductDetail = async () => {
+      if (!productId) return;
+      
       setIsLoading(true);
       setError('');
       
@@ -31,15 +35,15 @@ export function ProductDetail({ productId, onClose }: ProductDetailProps) {
     fetchProductDetail();
   }, [productId]);
   
-  // Pomocná funkce pro bezpečné formátování čísel
-  const formatCurrency = (value?: number) => {
+  // Pomocná funkce pro bezpečné formátování čísel - memoizovaná
+  const formatCurrency = useCallback((value?: number) => {
     return value !== undefined && value !== null 
       ? new Intl.NumberFormat('cs-CZ', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value)
       : '0,00';
-  };
+  }, []);
   
-  // Pomocná funkce pro konverzi dostupnosti na text
-  const formatAvailability = (availability: string | number): string => {
+  // Memoizované pomocné funkce
+  const formatAvailability = useCallback((availability: string | number): string => {
     if (typeof availability === 'number') {
       if (availability <= 0) return 'Není skladem';
       if (availability < 5) return `Skladem (${availability} ks)`;
@@ -48,10 +52,9 @@ export function ProductDetail({ productId, onClose }: ProductDetailProps) {
     }
     
     return availability;
-  };
+  }, []);
   
-  // Pomocná funkce pro získání barevného označení dostupnosti
-  const getAvailabilityColor = (availability: string | number): string => {
+  const getAvailabilityColor = useCallback((availability: string | number): string => {
     if (typeof availability === 'number') {
       if (availability <= 0) return 'text-red-600 bg-red-100';
       if (availability < 5) return 'text-orange-600 bg-orange-100';
@@ -62,25 +65,25 @@ export function ProductDetail({ productId, onClose }: ProductDetailProps) {
     if (availabilityLower.includes('skladem')) return 'text-green-600 bg-green-100';
     if (availabilityLower.includes('objednávku')) return 'text-orange-600 bg-orange-100';
     return 'text-gray-600 bg-gray-100';
-  };
+  }, []);
   
-  // Parsování řádků parametrů
-  const parseParameters = (parametersText?: string): { name: string, value: string }[] => {
-    if (!parametersText) return [];
+  // Parsování řádků parametrů - memoizované
+  const parameters = useMemo(() => {
+    if (!product?.parametry) return [];
     
-    return parametersText.split('\n')
+    return product.parametry.split('\n')
       .filter(line => line.trim())
       .map(line => {
         const [name, value] = line.split(':', 2).map(part => part.trim());
         return { name, value: value || '-' };
       });
-  };
+  }, [product?.parametry]);
   
-  // Parsování řádků dokumentů
-  const parseDocuments = (documentsText?: string): { type: string, url: string }[] => {
-    if (!documentsText) return [];
+  // Parsování řádků dokumentů - memoizované
+  const documents = useMemo(() => {
+    if (!product?.dokumenty) return [];
     
-    return documentsText.split('\n')
+    return product.dokumenty.split('\n')
       .filter(line => line.trim())
       .map(line => {
         const parts = line.split(':', 2);
@@ -89,7 +92,7 @@ export function ProductDetail({ productId, onClose }: ProductDetailProps) {
           url: parts[1] ? parts[1].trim() : ''
         };
       });
-  };
+  }, [product?.dokumenty]);
   
   // Pokud načítáme data
   if (isLoading) {
@@ -145,10 +148,6 @@ export function ProductDetail({ productId, onClose }: ProductDetailProps) {
     );
   }
   
-  // Získání parametrů a dokumentů
-  const parameters = parseParameters(product.parametry);
-  const documents = parseDocuments(product.dokumenty);
-  
   // Rendering detailu produktu
   return (
     <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex justify-center items-center p-4 overflow-y-auto">
@@ -160,6 +159,7 @@ export function ProductDetail({ productId, onClose }: ProductDetailProps) {
           <button
             onClick={onClose}
             className="text-gray-400 hover:text-gray-500 text-xl"
+            aria-label="Zavřít"
           >
             &times;
           </button>
@@ -173,10 +173,11 @@ export function ProductDetail({ productId, onClose }: ProductDetailProps) {
                 <img 
                   src={product.obrazek} 
                   alt={product.nazev} 
-                  className="w-full rounded-lg shadow-md"
+                  className="w-full rounded-lg shadow-md object-contain h-72"
                   onError={(e) => {
                     (e.target as HTMLImageElement).src = 'https://via.placeholder.com/300x300?text=No+Image';
                   }}
+                  loading="lazy" // Lazy loading pro optimalizaci
                 />
               ) : (
                 <div className="w-full h-72 bg-gray-200 rounded-lg flex items-center justify-center">
@@ -303,3 +304,6 @@ export function ProductDetail({ productId, onClose }: ProductDetailProps) {
     </div>
   );
 }
+
+// Použití React.memo pro optimalizaci vykreslování
+export default ProductDetail;
