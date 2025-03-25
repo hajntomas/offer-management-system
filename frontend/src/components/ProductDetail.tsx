@@ -5,7 +5,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../components/ui/tooltip';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
-import { Share, Heart, ShoppingCart, Info, Package, BarChart4, FileText, ExternalLink, Edit } from 'lucide-react';
+import { Share, Heart, ShoppingCart, Info, Package, BarChart4, FileText, ExternalLink, Edit } from '../components/Icons';
 
 interface ProductDetailProps {
   productId: string;
