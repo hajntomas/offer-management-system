@@ -1,157 +1,258 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { Search, Filter, ChevronDown, ChevronUp, Columns, Settings, RefreshCw, Download, List, Grid } from '../components/Icons';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import { Search, Filter, ChevronDown, ChevronUp, ArrowUp, ArrowDown } from '../components/Icons';
 
-const OptimizedProductList = () => {
-  // Stavy
-  const [products, setProducts] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [viewMode, setViewMode] = useState('table'); // 'table', 'grid', 'compact'
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(50);
-  const [totalProducts, setTotalProducts] = useState(0);
-  const [totalPages, setTotalPages] = useState(1);
-  const [sort, setSort] = useState({ field: 'nazev', direction: 'asc' });
+type Product = {
+  id: string;
+  kod: string;
+  nazev: string;
+  cena_bez_dph: number;
+  cena_s_dph: number;
+  dostupnost: number;
+  kategorie?: string;
+  vyrobce?: string;
+};
+
+type FilterState = {
+  search: string;
+  category: string;
+  manufacturer: string;
+  inStock: boolean;
+};
+
+const VirtualizedProductList: React.FC = () => {
+  // Konstanty pro optimalizaci
+  const ITEM_HEIGHT = 60; // Výška položky v pixelech
+  const OVERSCAN_COUNT = 5; // Počet položek pro načtení mimo viditelnou oblast
   
-  // Filtry
-  const [filters, setFilters] = useState({
+  // Stav seznamu a položek
+  const [products, setProducts] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [totalProducts, setTotalProducts] = useState(0);
+  
+  // Stav filtrování - použití useMemo pro zpracování změn
+  const [filters, setFilters] = useState<FilterState>({
     search: '',
     category: '',
     manufacturer: '',
-    priceMin: '',
-    priceMax: '',
     inStock: false,
   });
-
-  // Pokročilé filtry
-  const [advancedFiltersVisible, setAdvancedFiltersVisible] = useState(false);
-  const [selectedColumns, setSelectedColumns] = useState([
-    'kod', 'nazev', 'cena_bez_dph', 'cena_s_dph', 'dostupnost', 'kategorie', 'vyrobce'
-  ]);
   
-  // Simulovaná data pro ukázku (ve skutečné implementaci by zde byl API call)
+  // Dočasná hodnota pro vyhledávací pole (debounce implementace)
+  const [searchInput, setSearchInput] = useState('');
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Reference na DOM elementy
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [containerHeight, setContainerHeight] = useState(0);
+  
+  // Simulace načtení velkého množství dat - optimalizace pomocí useMemo
   useEffect(() => {
-    // Simulace načítání dat
-    setTimeout(() => {
-      // Vzorová data - v reálné implementaci by se načítala z API
-      const dummyProducts = Array.from({ length: 1300 }, (_, i) => ({
-        id: `prod-${i+1}`,
-        kod: `PROD-${1000+i}`,
-        nazev: `Produkt ${i+1}`,
-        cena_bez_dph: Math.floor(Math.random() * 50000) + 1000,
-        cena_s_dph: Math.floor(Math.random() * 60000) + 1200,
-        dostupnost: Math.floor(Math.random() * 30),
-        kategorie: ['notebooky', 'počítače', 'monitory', 'příslušenství'][Math.floor(Math.random() * 4)],
-        vyrobce: ['Dell', 'Apple', 'HP', 'Lenovo', 'Samsung', 'LG', 'Logitech'][Math.floor(Math.random() * 7)],
-      }));
+    const loadProducts = async () => {
+      setLoading(true);
       
-      setProducts(dummyProducts.slice((page-1) * pageSize, page * pageSize));
-      setTotalProducts(dummyProducts.length);
-      setTotalPages(Math.ceil(dummyProducts.length / pageSize));
-      setLoading(false);
-    }, 500);
-  }, [page, pageSize]);
+      try {
+        // Simulace API volání
+        await new Promise(resolve => setTimeout(resolve, 300));
+        
+        // Simulace velkého množství dat (efektivnější generování)
+        const categories = ['notebooky', 'počítače', 'monitory', 'příslušenství'];
+        const manufacturers = ['Dell', 'Apple', 'HP', 'Lenovo', 'Samsung', 'LG', 'Logitech'];
+        
+        const mockProducts = Array.from({ length: 1300 }, (_, i) => ({
+          id: `prod-${i + 1}`,
+          kod: `KOD-${1000 + i}`,
+          nazev: `Produkt ${i + 1} - ${categories[i % categories.length]} ${manufacturers[i % manufacturers.length]}`,
+          kategorie: categories[i % categories.length],
+          vyrobce: manufacturers[i % manufacturers.length],
+          cena_bez_dph: Math.floor(Math.random() * 40000) + 5000,
+          cena_s_dph: Math.floor(Math.random() * 50000) + 6000,
+          dostupnost: Math.floor(Math.random() * 30),
+        }));
+        
+        setProducts(mockProducts);
+        setTotalProducts(mockProducts.length);
+      } catch (error) {
+        console.error('Error loading products:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    loadProducts();
+  }, []);
   
-  // Formátování ceny
-  const formatPrice = (price) => {
-    return new Intl.NumberFormat('cs-CZ', { style: 'currency', currency: 'CZK' }).format(price);
-  };
+  // Efekt pro inicializaci a aktualizaci výšky kontejneru s ResizeObserver
+  useEffect(() => {
+    if (!containerRef.current) return;
+    
+    const updateHeight = () => {
+      if (containerRef.current) {
+        setContainerHeight(containerRef.current.clientHeight);
+      }
+    };
+    
+    // Inicializace výšky
+    updateHeight();
+    
+    // Použití ResizeObserver pro aktualizaci při změně velikosti
+    const resizeObserver = new ResizeObserver(updateHeight);
+    resizeObserver.observe(containerRef.current);
+    
+    return () => {
+      if (containerRef.current) {
+        resizeObserver.unobserve(containerRef.current);
+      }
+    };
+  }, []);
   
-  // Formátování dostupnosti
-  const getAvailabilityDisplay = (availability) => {
+  // Optimalizovaná implementace vyhledávání s debounce
+  const handleSearchChange = useCallback((value: string) => {
+    setSearchInput(value);
+    
+    // Zrušení předchozího časovače
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+    
+    // Nastavení nového časovače pro debounce
+    searchTimeoutRef.current = setTimeout(() => {
+      setFilters(prev => ({ ...prev, search: value }));
+      
+      // Reset scrollování na začátek při změně vyhledávání
+      if (containerRef.current) {
+        containerRef.current.scrollTop = 0;
+      }
+      setScrollTop(0);
+    }, 300);
+  }, []);
+  
+  // Optimalizované zpracování změny filtru
+  const handleFilterChange = useCallback((name: keyof FilterState, value: string | boolean) => {
+    setFilters(prev => ({ ...prev, [name]: value }));
+    
+    // Reset scrollování při změně filtrů
+    if (containerRef.current) {
+      containerRef.current.scrollTop = 0;
+    }
+    setScrollTop(0);
+  }, []);
+  
+  // Zpracování scroll události - s throttlingem pro optimalizaci výkonu
+  const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    requestAnimationFrame(() => {
+      setScrollTop(e.currentTarget.scrollTop);
+    });
+  }, []);
+  
+  // Filtrování produktů - memoizované pro optimalizaci výkonu
+  const filteredProducts = useMemo(() => {
+    // Pokud nejsou data nebo se načítají, vrátíme prázdné pole
+    if (products.length === 0 || loading) return [];
+    
+    let result = [...products];
+    
+    // Aplikace filtrů
+    if (filters.search) {
+      const searchLower = filters.search.toLowerCase();
+      result = result.filter(p => 
+        p.kod.toLowerCase().includes(searchLower) || 
+        p.nazev.toLowerCase().includes(searchLower)
+      );
+    }
+    
+    if (filters.category) {
+      result = result.filter(p => p.kategorie === filters.category);
+    }
+    
+    if (filters.manufacturer) {
+      result = result.filter(p => p.vyrobce === filters.manufacturer);
+    }
+    
+    if (filters.inStock) {
+      result = result.filter(p => p.dostupnost > 0);
+    }
+    
+    return result;
+  }, [products, filters, loading]);
+  
+  // Výpočet viditelných položek - memoizované
+  const visibleItems = useMemo(() => {
+    // Počet filtrovaných produktů
+    const filteredCount = filteredProducts.length;
+    
+    // Výpočet rozsahu viditelných položek
+    const startIndex = Math.max(0, Math.floor(scrollTop / ITEM_HEIGHT) - OVERSCAN_COUNT);
+    const endIndex = Math.min(
+      filteredCount - 1,
+      Math.ceil((scrollTop + containerHeight) / ITEM_HEIGHT) + OVERSCAN_COUNT
+    );
+    
+    // Vytvoření pole viditelných položek s pozicí
+    return filteredProducts.slice(startIndex, endIndex + 1).map((product, index) => ({
+      ...product,
+      index: startIndex + index
+    }));
+  }, [filteredProducts, scrollTop, containerHeight]);
+  
+  // Memoizované pomocné funkce pro formátování
+  const formatPrice = useCallback((price: number) => {
+    return new Intl.NumberFormat('cs-CZ', {
+      style: 'currency',
+      currency: 'CZK',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0
+    }).format(price);
+  }, []);
+  
+  const getAvailabilityDisplay = useCallback((availability: number) => {
     if (availability <= 0) return { text: 'Není skladem', color: 'text-red-600 bg-red-50' };
     if (availability < 5) return { text: `Poslední kusy (${availability})`, color: 'text-orange-600 bg-orange-50' };
     if (availability < 20) return { text: `Skladem (${availability})`, color: 'text-green-600 bg-green-50' };
     return { text: 'Dostatek skladem', color: 'text-green-600 bg-green-50' };
-  };
+  }, []);
   
-  // Zpracování změny stránky
-  const handlePageChange = (newPage) => {
-    if (newPage >= 1 && newPage <= totalPages) {
-      setPage(newPage);
+  // Rychlé posuny na začátek a konec seznamu
+  const handleScrollToTop = useCallback(() => {
+    if (containerRef.current) {
+      containerRef.current.scrollTop = 0;
     }
-  };
+  }, []);
   
-  // Zpracování změny filtru
-  const handleFilterChange = (name, value) => {
-    setFilters(prev => ({ ...prev, [name]: value }));
-    setPage(1); // Reset na první stránku při změně filtrů
-  };
-
-  // Zpracování změny řazení
-  const handleSortChange = (field) => {
-    setSort(prev => ({
-      field,
-      direction: prev.field === field && prev.direction === 'asc' ? 'desc' : 'asc'
-    }));
-  };
-  
-  // Zobrazeit viditelné sloupce pro tabulkový pohled
-  const toggleColumnVisibility = (column) => {
-    setSelectedColumns(prev => 
-      prev.includes(column) 
-        ? prev.filter(col => col !== column)
-        : [...prev, column]
-    );
-  };
-  
-  // Vygenerování možností pro stránkování
-  const pageOptions = useMemo(() => {
-    const options = [];
-    
-    // Vždy zobrazit první stránku
-    options.push(1);
-    
-    // Přidat elipsu, pokud není 2. stránka v blízkosti aktuální stránky
-    if (page > 4) options.push('...');
-    
-    // Přidat stránky kolem aktuální stránky
-    for (let i = Math.max(2, page - 1); i <= Math.min(totalPages - 1, page + 1); i++) {
-      options.push(i);
+  const handleScrollToBottom = useCallback(() => {
+    if (containerRef.current) {
+      containerRef.current.scrollTop = filteredProducts.length * ITEM_HEIGHT;
     }
-    
-    // Přidat elipsu, pokud není předposlední stránka v blízkosti aktuální stránky
-    if (page < totalPages - 3) options.push('...');
-    
-    // Přidat poslední stránku, pokud existuje
-    if (totalPages > 1) options.push(totalPages);
-    
-    return options;
-  }, [page, totalPages]);
+  }, [filteredProducts.length]);
   
-  // Zobrazení nahrávání
-  if (loading) {
-    return (
-      <div className="flex flex-col h-96 items-center justify-center bg-white rounded-lg shadow">
-        <div className="w-12 h-12 border-t-2 border-b-2 border-blue-500 rounded-full animate-spin"></div>
-        <p className="mt-4 text-gray-600">Načítání produktů...</p>
-      </div>
-    );
-  }
+  // Memoizovaný počet výsledků
+  const resultCount = useMemo(() => filteredProducts.length, [filteredProducts]);
   
   return (
-    <div className="bg-gray-50 p-4 rounded-lg shadow">
-      {/* Horní panel s filtry a akcemi */}
-      <div className="mb-4 bg-white rounded-lg shadow p-4">
-        {/* Základní filtry */}
-        <div className="flex flex-wrap gap-3 mb-4">
-          {/* Vyhledávání */}
+    <div className="flex flex-col h-full bg-white rounded-lg shadow">
+      {/* Panel filtrů */}
+      <div className="border-b p-4">
+        <div className="flex flex-wrap gap-3">
+          {/* Vyhledávací pole */}
           <div className="flex-1 min-w-48">
-            <div className="relative">
-              <input 
-                type="text" 
-                placeholder="Vyhledat..." 
-                className="w-full pl-10 pr-4 py-2 border rounded-lg"
-                value={filters.search}
-                onChange={(e) => handleFilterChange('search', e.target.value)}
+            <div className="relative rounded-md shadow-sm">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <Search className="h-5 w-5 text-gray-400" />
+              </div>
+              <input
+                type="text"
+                className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                placeholder="Vyhledat produkt..."
+                value={searchInput}
+                onChange={(e) => handleSearchChange(e.target.value)}
               />
-              <Search className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
             </div>
           </div>
           
-          {/* Kategorie */}
-          <div className="w-48">
-            <select 
-              className="w-full px-3 py-2 border rounded-lg"
+          {/* Filtr kategorie */}
+          <div className="w-40">
+            <select
+              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
               value={filters.category}
               onChange={(e) => handleFilterChange('category', e.target.value)}
             >
@@ -163,454 +264,148 @@ const OptimizedProductList = () => {
             </select>
           </div>
           
-          {/* Výrobce */}
-          <div className="w-48">
-            <select 
-              className="w-full px-3 py-2 border rounded-lg"
+          {/* Filtr výrobce */}
+          <div className="w-40">
+            <select
+              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
               value={filters.manufacturer}
               onChange={(e) => handleFilterChange('manufacturer', e.target.value)}
             >
               <option value="">Všichni výrobci</option>
               <option value="Dell">Dell</option>
-              <option value="Apple">Apple</option>
               <option value="HP">HP</option>
               <option value="Lenovo">Lenovo</option>
+              <option value="Apple">Apple</option>
               <option value="Samsung">Samsung</option>
-              <option value="LG">LG</option>
-              <option value="Logitech">Logitech</option>
             </select>
           </div>
           
-          {/* Dostupnost */}
-          <div className="w-36">
-            <div className="flex items-center">
-              <input 
-                type="checkbox" 
-                id="inStock" 
-                className="rounded border-gray-300 text-blue-600 mr-2"
-                checked={filters.inStock}
-                onChange={(e) => handleFilterChange('inStock', e.target.checked)}
-              />
-              <label htmlFor="inStock" className="text-sm text-gray-700">Pouze skladem</label>
-            </div>
-          </div>
-          
-          {/* Pokročilé filtry */}
-          <button 
-            className="px-3 py-2 border rounded-lg flex items-center gap-1 text-gray-700 hover:bg-gray-50"
-            onClick={() => setAdvancedFiltersVisible(!advancedFiltersVisible)}
-          >
-            <Filter className="h-4 w-4" />
-            <span>Filtry</span>
-            {advancedFiltersVisible ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-          </button>
-          
-          {/* Přepínač zobrazení */}
-          <div className="border rounded-lg flex overflow-hidden">
-            <button 
-              className={`px-3 py-2 flex items-center gap-1 ${viewMode === 'table' ? 'bg-blue-50 text-blue-600' : 'text-gray-700 hover:bg-gray-50'}`}
-              onClick={() => setViewMode('table')}
-            >
-              <List className="h-4 w-4" />
-            </button>
-            <button 
-              className={`px-3 py-2 flex items-center gap-1 ${viewMode === 'grid' ? 'bg-blue-50 text-blue-600' : 'text-gray-700 hover:bg-gray-50'}`}
-              onClick={() => setViewMode('grid')}
-            >
-              <Grid className="h-4 w-4" />
-            </button>
+          {/* Filtr skladem */}
+          <div className="flex items-center">
+            <input
+              id="in-stock"
+              type="checkbox"
+              className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+              checked={filters.inStock}
+              onChange={(e) => handleFilterChange('inStock', e.target.checked)}
+            />
+            <label htmlFor="in-stock" className="ml-2 text-sm text-gray-700">
+              Pouze skladem
+            </label>
           </div>
         </div>
-        
-        {/* Pokročilé filtry */}
-        {advancedFiltersVisible && (
-          <div className="pt-3 border-t">
-            <div className="flex flex-wrap gap-3">
-              {/* Cenové rozpětí */}
-              <div className="flex-1 min-w-48 max-w-96">
-                <label className="block text-sm font-medium text-gray-700 mb-1">Cena (Kč)</label>
-                <div className="flex gap-2">
-                  <input 
-                    type="number" 
-                    placeholder="Od" 
-                    className="w-full px-3 py-2 border rounded-lg"
-                    value={filters.priceMin}
-                    onChange={(e) => handleFilterChange('priceMin', e.target.value)}
-                  />
-                  <span className="self-center">-</span>
-                  <input 
-                    type="number" 
-                    placeholder="Do" 
-                    className="w-full px-3 py-2 border rounded-lg"
-                    value={filters.priceMax}
-                    onChange={(e) => handleFilterChange('priceMax', e.target.value)}
-                  />
-                </div>
-              </div>
-              
-              {/* Výběr sloupců */}
-              <div className="flex-1 min-w-48">
-                <label className="block text-sm font-medium text-gray-700 mb-1">Zobrazované sloupce</label>
-                <div className="flex flex-wrap gap-2">
-                  {[
-                    { id: 'kod', label: 'Kód' },
-                    { id: 'nazev', label: 'Název' },
-                    { id: 'cena_bez_dph', label: 'Cena bez DPH' },
-                    { id: 'cena_s_dph', label: 'Cena s DPH' },
-                    { id: 'dostupnost', label: 'Dostupnost' },
-                    { id: 'kategorie', label: 'Kategorie' },
-                    { id: 'vyrobce', label: 'Výrobce' }
-                  ].map(column => (
-                    <label key={column.id} className="flex items-center">
-                      <input 
-                        type="checkbox" 
-                        className="rounded border-gray-300 text-blue-600 mr-1"
-                        checked={selectedColumns.includes(column.id)}
-                        onChange={() => toggleColumnVisibility(column.id)}
-                      />
-                      <span className="text-sm text-gray-700">{column.label}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
       
-      {/* Informace o počtu produktů a stránkování */}
-      <div className="flex flex-wrap items-center justify-between mb-4 gap-2">
+      {/* Informace o výsledcích */}
+      <div className="flex justify-between items-center px-4 py-2 bg-gray-50 border-b">
         <div className="text-sm text-gray-600">
-          Zobrazuji <span className="font-medium">{(page - 1) * pageSize + 1}</span> - <span className="font-medium">{Math.min(page * pageSize, totalProducts)}</span> z <span className="font-medium">{totalProducts}</span> produktů
+          {loading ? 'Načítání produktů...' : `Zobrazuji ${resultCount} produktů`}
         </div>
         
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-gray-600">Položek na stránku:</span>
-          <select 
-            className="px-2 py-1 border rounded-md text-sm"
-            value={pageSize}
-            onChange={(e) => {
-              setPageSize(Number(e.target.value));
-              setPage(1);
-            }}
+        <div className="flex space-x-2">
+          <button
+            onClick={handleScrollToTop}
+            className="p-1 rounded-md hover:bg-gray-200"
+            title="Přejít na začátek"
           >
-            <option value="25">25</option>
-            <option value="50">50</option>
-            <option value="100">100</option>
-            <option value="250">250</option>
-          </select>
+            <ArrowUp className="h-4 w-4 text-gray-600" />
+          </button>
+          <button
+            onClick={handleScrollToBottom}
+            className="p-1 rounded-md hover:bg-gray-200"
+            title="Přejít na konec"
+          >
+            <ArrowDown className="h-4 w-4 text-gray-600" />
+          </button>
         </div>
       </div>
       
-      {/* Výpis produktů - Tabulkový pohled */}
-      {viewMode === 'table' && (
-        <div className="bg-white rounded-lg shadow overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  {selectedColumns.includes('kod') && (
-                    <th 
-                      className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
-                      onClick={() => handleSortChange('kod')}
-                    >
-                      <div className="flex items-center">
-                        <span>Kód</span>
-                        {sort.field === 'kod' && (
-                          sort.direction === 'asc' 
-                            ? <ChevronUp className="ml-1 h-4 w-4" />
-                            : <ChevronDown className="ml-1 h-4 w-4" />
-                        )}
-                      </div>
-                    </th>
-                  )}
-                  
-                  {selectedColumns.includes('nazev') && (
-                    <th 
-                      className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
-                      onClick={() => handleSortChange('nazev')}
-                    >
-                      <div className="flex items-center">
-                        <span>Název</span>
-                        {sort.field === 'nazev' && (
-                          sort.direction === 'asc' 
-                            ? <ChevronUp className="ml-1 h-4 w-4" />
-                            : <ChevronDown className="ml-1 h-4 w-4" />
-                        )}
-                      </div>
-                    </th>
-                  )}
-                  
-                  {selectedColumns.includes('cena_bez_dph') && (
-                    <th 
-                      className="px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
-                      onClick={() => handleSortChange('cena_bez_dph')}
-                    >
-                      <div className="flex items-center justify-end">
-                        <span>Cena bez DPH</span>
-                        {sort.field === 'cena_bez_dph' && (
-                          sort.direction === 'asc' 
-                            ? <ChevronUp className="ml-1 h-4 w-4" />
-                            : <ChevronDown className="ml-1 h-4 w-4" />
-                        )}
-                      </div>
-                    </th>
-                  )}
-                  
-                  {selectedColumns.includes('cena_s_dph') && (
-                    <th 
-                      className="px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
-                      onClick={() => handleSortChange('cena_s_dph')}
-                    >
-                      <div className="flex items-center justify-end">
-                        <span>Cena s DPH</span>
-                        {sort.field === 'cena_s_dph' && (
-                          sort.direction === 'asc' 
-                            ? <ChevronUp className="ml-1 h-4 w-4" />
-                            : <ChevronDown className="ml-1 h-4 w-4" />
-                        )}
-                      </div>
-                    </th>
-                  )}
-                  
-                  {selectedColumns.includes('dostupnost') && (
-                    <th 
-                      className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
-                      onClick={() => handleSortChange('dostupnost')}
-                    >
-                      <div className="flex items-center justify-center">
-                        <span>Dostupnost</span>
-                        {sort.field === 'dostupnost' && (
-                          sort.direction === 'asc' 
-                            ? <ChevronUp className="ml-1 h-4 w-4" />
-                            : <ChevronDown className="ml-1 h-4 w-4" />
-                        )}
-                      </div>
-                    </th>
-                  )}
-                  
-                  {selectedColumns.includes('kategorie') && (
-                    <th 
-                      className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
-                      onClick={() => handleSortChange('kategorie')}
-                    >
-                      <div className="flex items-center">
-                        <span>Kategorie</span>
-                        {sort.field === 'kategorie' && (
-                          sort.direction === 'asc' 
-                            ? <ChevronUp className="ml-1 h-4 w-4" />
-                            : <ChevronDown className="ml-1 h-4 w-4" />
-                        )}
-                      </div>
-                    </th>
-                  )}
-                  
-                  {selectedColumns.includes('vyrobce') && (
-                    <th 
-                      className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
-                      onClick={() => handleSortChange('vyrobce')}
-                    >
-                      <div className="flex items-center">
-                        <span>Výrobce</span>
-                        {sort.field === 'vyrobce' && (
-                          sort.direction === 'asc' 
-                            ? <ChevronUp className="ml-1 h-4 w-4" />
-                            : <ChevronDown className="ml-1 h-4 w-4" />
-                        )}
-                      </div>
-                    </th>
-                  )}
-                  
-                  <th className="px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Akce
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {products.map((product) => {
-                  const availability = getAvailabilityDisplay(product.dostupnost);
-                  
-                  return (
-                    <tr key={product.id} className="hover:bg-gray-50">
-                      {selectedColumns.includes('kod') && (
-                        <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-900 font-medium">
-                          {product.kod}
-                        </td>
-                      )}
-                      
-                      {selectedColumns.includes('nazev') && (
-                        <td className="px-3 py-2 text-sm text-gray-900">
-                          <div className="max-w-xs truncate" title={product.nazev}>
-                            {product.nazev}
-                          </div>
-                        </td>
-                      )}
-                      
-                      {selectedColumns.includes('cena_bez_dph') && (
-                        <td className="px-3 py-2 whitespace-nowrap text-sm text-right text-gray-900">
-                          {formatPrice(product.cena_bez_dph)}
-                        </td>
-                      )}
-                      
-                      {selectedColumns.includes('cena_s_dph') && (
-                        <td className="px-3 py-2 whitespace-nowrap text-sm text-right font-medium text-gray-900">
-                          {formatPrice(product.cena_s_dph)}
-                        </td>
-                      )}
-                      
-                      {selectedColumns.includes('dostupnost') && (
-                        <td className="px-3 py-2 whitespace-nowrap text-sm text-center">
-                          <span className={`px-2 py-1 inline-flex text-xs leading-5 font-medium rounded-full ${availability.color}`}>
-                            {availability.text}
-                          </span>
-                        </td>
-                      )}
-                      
-                      {selectedColumns.includes('kategorie') && (
-                        <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-700">
-                          {product.kategorie}
-                        </td>
-                      )}
-                      
-                      {selectedColumns.includes('vyrobce') && (
-                        <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-700">
-                          {product.vyrobce}
-                        </td>
-                      )}
-                      
-                      <td className="px-3 py-2 whitespace-nowrap text-sm text-right space-x-1">
-                        <button
-                          className="px-2 py-1 text-xs text-blue-600 hover:bg-blue-50 rounded"
-                          title="Zobrazit detail"
-                        >
-                          Detail
-                        </button>
-                        <button
-                          className="px-2 py-1 text-xs text-green-600 hover:bg-green-50 rounded"
-                          title="Přidat do nabídky"
-                        >
-                          Přidat
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+      {/* Hlavička tabulky */}
+      <div className="px-4 py-2 border-b bg-gray-50 grid grid-cols-12 gap-2 text-xs font-medium text-gray-500 uppercase">
+        <div className="col-span-1">Kód</div>
+        <div className="col-span-5">Název</div>
+        <div className="col-span-1 text-center">Kategorie</div>
+        <div className="col-span-1">Výrobce</div>
+        <div className="col-span-1 text-right">Cena bez DPH</div>
+        <div className="col-span-1 text-right">Cena s DPH</div>
+        <div className="col-span-1 text-center">Dostupnost</div>
+        <div className="col-span-1 text-right">Akce</div>
+      </div>
+      
+      {/* Virtualizovaný seznam produktů */}
+      {loading ? (
+        <div className="flex-grow flex items-center justify-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
+          <span className="ml-2">Načítání produktů...</span>
+        </div>
+      ) : (
+        <div 
+          ref={containerRef} 
+          className="flex-grow overflow-auto relative overscroll-contain"
+          onScroll={handleScroll}
+        >
+          {/* Virtuální scroll container s přesnou výškou */}
+          <div style={{ height: `${filteredProducts.length * ITEM_HEIGHT}px`, position: 'relative' }}>
+            {/* Viditelné položky */}
+            {visibleItems.map((product) => (
+              <div
+                key={product.id}
+                className="absolute w-full px-4 py-2 hover:bg-gray-50 border-b grid grid-cols-12 gap-2 items-center"
+                style={{ 
+                  height: `${ITEM_HEIGHT}px`, 
+                  top: `${product.index * ITEM_HEIGHT}px`,
+                  willChange: 'transform' // Optimalizace pro GPU akceleraci
+                }}
+              >
+                <div className="col-span-1 text-sm font-medium text-gray-900 truncate" title={product.kod}>
+                  {product.kod}
+                </div>
+                <div className="col-span-5 text-sm text-gray-900 truncate" title={product.nazev}>
+                  {product.nazev}
+                </div>
+                <div className="col-span-1 text-sm text-gray-500 text-center truncate">
+                  {product.kategorie}
+                </div>
+                <div className="col-span-1 text-sm text-gray-500 truncate">
+                  {product.vyrobce}
+                </div>
+                <div className="col-span-1 text-sm text-gray-700 text-right whitespace-nowrap">
+                  {formatPrice(product.cena_bez_dph)}
+                </div>
+                <div className="col-span-1 text-sm font-medium text-gray-900 text-right whitespace-nowrap">
+                  {formatPrice(product.cena_s_dph)}
+                </div>
+                <div className="col-span-1 text-center">
+                  <span className={`px-2 py-1 inline-flex text-xs leading-4 font-medium rounded-full ${getAvailabilityDisplay(product.dostupnost).color}`}>
+                    {getAvailabilityDisplay(product.dostupnost).text}
+                  </span>
+                </div>
+                <div className="col-span-1 text-right">
+                  <button className="text-sm text-blue-600 hover:text-blue-800 px-2 py-1">Detail</button>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}
       
-      {/* Výpis produktů - Dlaždicový pohled */}
-      {viewMode === 'grid' && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {products.map((product) => {
-            const availability = getAvailabilityDisplay(product.dostupnost);
-            
-            return (
-              <div key={product.id} className="bg-white rounded-lg shadow overflow-hidden flex flex-col">
-                <div className="p-4 flex-grow">
-                  <div className="flex justify-between items-start mb-2">
-                    <h3 className="text-sm font-medium text-gray-900 truncate" title={product.nazev}>
-                      {product.nazev}
-                    </h3>
-                    <span className={`ml-2 px-2 py-1 text-xs leading-none font-medium rounded-full flex-shrink-0 ${availability.color}`}>
-                      {availability.text}
-                    </span>
-                  </div>
-                  
-                  <p className="text-xs text-gray-500 mb-2">Kód: {product.kod}</p>
-                  
-                  <div className="mt-2 flex items-end justify-between">
-                    <div>
-                      <p className="text-xs text-gray-500">Bez DPH:</p>
-                      <p className="text-sm font-medium text-gray-900">{formatPrice(product.cena_bez_dph)}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-xs text-gray-500">S DPH:</p>
-                      <p className="text-base font-bold text-gray-900">{formatPrice(product.cena_s_dph)}</p>
-                    </div>
-                  </div>
-                  
-                  <div className="mt-3 flex items-center text-xs text-gray-500 space-x-2">
-                    {product.kategorie && (
-                      <span className="px-2 py-1 bg-gray-100 rounded-md">{product.kategorie}</span>
-                    )}
-                    {product.vyrobce && (
-                      <span className="px-2 py-1 bg-gray-100 rounded-md">{product.vyrobce}</span>
-                    )}
-                  </div>
-                </div>
-                
-                <div className="px-4 py-3 bg-gray-50 border-t flex justify-between">
-                  <button
-                    className="px-2 py-1 text-xs text-blue-600 hover:bg-blue-50 rounded"
-                  >
-                    Detail
-                  </button>
-                  <button
-                    className="px-2 py-1 text-xs font-medium bg-green-600 text-white hover:bg-green-700 rounded"
-                  >
-                    Přidat do nabídky
-                  </button>
-                </div>
-              </div>
-            );
-          })}
+      {/* Stavový řádek pro informace o scrollu */}
+      <div className="flex justify-between items-center px-4 py-2 bg-gray-50 border-t text-xs text-gray-500">
+        <div>
+          Posun: {Math.floor(scrollTop / ITEM_HEIGHT)} / {resultCount}
         </div>
-      )}
-      
-      {/* Stránkování */}
-      <div className="mt-4 flex justify-center">
-        <nav className="relative z-0 inline-flex rounded-md shadow-sm -space-x-px" aria-label="Pagination">
-          <button
-            className="relative inline-flex items-center px-2 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50"
-            onClick={() => handlePageChange(page - 1)}
-            disabled={page === 1}
+        <div>
+          <button 
+            className="text-gray-600 hover:text-gray-900 p-1 rounded hover:bg-gray-200"
+            onClick={handleScrollToTop}
+            aria-label="Nahoru"
           >
-            <span className="sr-only">Předchozí</span>
-            <svg className="h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clipRule="evenodd" />
-            </svg>
+            <ArrowUp className="h-4 w-4" />
           </button>
-          
-          {pageOptions.map((pageOption, index) => (
-            pageOption === '...' ? (
-              <span
-                key={`ellipsis-${index}`}
-                className="relative inline-flex items-center px-4 py-2 border border-gray-300 bg-white text-sm font-medium text-gray-700"
-              >
-                ...
-              </span>
-            ) : (
-              <button
-                key={pageOption}
-                onClick={() => handlePageChange(pageOption)}
-                className={`relative inline-flex items-center px-4 py-2 border text-sm font-medium ${
-                  page === pageOption
-                    ? 'z-10 bg-blue-50 border-blue-500 text-blue-600'
-                    : 'bg-white border-gray-300 text-gray-500 hover:bg-gray-50'
-                }`}
-              >
-                {pageOption}
-              </button>
-            )
-          ))}
-          
-          <button
-            className="relative inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50"
-            onClick={() => handlePageChange(page + 1)}
-            disabled={page === totalPages}
-          >
-            <span className="sr-only">Další</span>
-            <svg className="h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
-            </svg>
-          </button>
-        </nav>
+        </div>
       </div>
     </div>
   );
 };
 
-export default OptimizedProductList;
+export default React.memo(VirtualizedProductList);
