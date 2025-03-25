@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, X, ArrowRight, Tag, Package } from 'lucide-react';
+import { Search, X, ArrowRight, Tag, Package } from '../components/Icons';
 
 const ProductSearch = ({ onSelectProduct }) => {
   const [searchTerm, setSearchTerm] = useState('');
