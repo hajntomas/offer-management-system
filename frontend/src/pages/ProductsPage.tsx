@@ -2,8 +2,12 @@
 import { useEffect, useState, useRef } from 'react';
 import { api, Product, ProductFilterOptions } from '../services/api';
 import { ProductDetail } from '../components/ProductDetail';
-import { OptimizedProductList } from '../components/OptimizedProductList';
-import { VirtualizedProductList } from '../components/VirtualizedProductList';
+import OptimizedProductList from '../components/OptimizedProductList';
+import VirtualizedProductList from '../components/VirtualizedProductList';
+import ProductSearch from '../components/ProductSearch';
+
+// Typy zobrazení seznamu produktů
+type ViewMode = 'standard' | 'optimized' | 'virtualized';
 
 export function ProductsPage() {
   // Stav
@@ -18,6 +22,7 @@ export function ProductsPage() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<ViewMode>('standard');
   
   // Modaly pro import
   const [isXmlCenikModalOpen, setIsXmlCenikModalOpen] = useState(false);
@@ -121,6 +126,11 @@ export function ProductsPage() {
   const handleSearch = () => {
     setPage(1); // Reset stránky
     fetchProducts();
+  };
+  
+  // Obsluha výběru produktu z vyhledávání
+  const handleProductSelect = (product: Product) => {
+    setSelectedProductId(product.id || product.kod);
   };
   
   // Import produktů z XML ceníku
@@ -230,7 +240,6 @@ export function ProductsPage() {
     }
   };
   
-  // Vykreslení UI
   return (
     <div className="min-h-screen bg-gray-100">
       <header className="bg-white shadow">
@@ -334,29 +343,41 @@ export function ProductsPage() {
           </div>
         )}
 
-        {/* Filtrování a vyhledávání */}
+        {/* Integrované rychlé vyhledávání s našeptávačem */}
         <div className="mb-6 bg-white shadow rounded-lg p-4">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="md:col-span-2">
-              <label htmlFor="search" className="block text-sm font-medium text-gray-700">Vyhledávání</label>
-              <div className="mt-1 flex rounded-md shadow-sm">
-                <input
-                  type="text"
-                  id="search"
-                  placeholder="Hledat podle názvu, kódu nebo popisu..."
-                  value={searchTerm}
-                  onChange={e => setSearchTerm(e.target.value)}
-                  className="flex-1 min-w-0 block w-full px-3 py-2 rounded-none rounded-l-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 border border-gray-300"
-                />
+          <div className="flex flex-col md:flex-row gap-4 items-start md:items-center">
+            <div className="w-full md:flex-1">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Vyhledávání produktů</label>
+              <ProductSearch onSelectProduct={handleProductSelect} />
+            </div>
+            
+            {/* Přepínač režimů zobrazení */}
+            <div className="flex-shrink-0">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Zobrazení</label>
+              <div className="flex border border-gray-300 rounded-md overflow-hidden">
                 <button
-                  onClick={handleSearch}
-                  className="inline-flex items-center px-4 py-2 border border-l-0 border-gray-300 rounded-r-md bg-blue-600 text-white hover:bg-blue-700 focus:outline-none"
+                  onClick={() => setViewMode('standard')}
+                  className={`px-3 py-2 ${viewMode === 'standard' ? 'bg-blue-500 text-white' : 'bg-white text-gray-700'}`}
                 >
-                  Hledat
+                  Standardní
+                </button>
+                <button
+                  onClick={() => setViewMode('optimized')}
+                  className={`px-3 py-2 ${viewMode === 'optimized' ? 'bg-blue-500 text-white' : 'bg-white text-gray-700'}`}
+                >
+                  Optimalizovaný
+                </button>
+                <button
+                  onClick={() => setViewMode('virtualized')}
+                  className={`px-3 py-2 ${viewMode === 'virtualized' ? 'bg-blue-500 text-white' : 'bg-white text-gray-700'}`}
+                >
+                  Virtualizovaný
                 </button>
               </div>
             </div>
-            
+          </div>
+
+          <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
               <label htmlFor="category" className="block text-sm font-medium text-gray-700">Kategorie</label>
               <select
@@ -386,10 +407,19 @@ export function ProductsPage() {
                 ))}
               </select>
             </div>
+
+            <div className="flex items-end">
+              <button
+                onClick={handleSearch}
+                className="w-full px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+              >
+                Vyhledat produkty
+              </button>
+            </div>
           </div>
         </div>
 
-        {/* Seznam produktů */}
+        {/* Zobrazení seznamu produktů podle vybraného režimu */}
         {isLoading ? (
           <div className="flex justify-center items-center py-20">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
@@ -404,92 +434,111 @@ export function ProductsPage() {
             <p className="mt-1 text-gray-500">Nebyly nalezeny žádné produkty odpovídající zadaným kritériím.</p>
           </div>
         ) : (
-          <div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {products.map(product => (
-                <div key={product.kod} className="bg-white overflow-hidden shadow rounded-lg flex flex-col">
-                  <div className="px-4 py-5 sm:p-6 flex-grow">
-                    <div className="flex justify-between items-start">
-                      <h3 className="text-lg font-medium text-gray-900 truncate" title={product.nazev}>
-                        {product.nazev}
-                      </h3>
-                      <span className={`px-2 py-1 text-xs rounded-full ${
-                        typeof product.dostupnost === 'number'
-                          ? (product.dostupnost > 0 ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800')
-                          : String(product.dostupnost).toLowerCase().includes('skladem')
-                            ? 'bg-green-100 text-green-800' 
-                            : 'bg-orange-100 text-orange-800'
-                      }`}>
-                        {typeof product.dostupnost === 'number'
-                          ? (product.dostupnost > 0 ? `Skladem (${product.dostupnost})` : 'Není skladem')
-                          : product.dostupnost
-                        }
-                      </span>
-                    </div>
-                    <p className="mt-1 text-sm text-gray-600">Kód: {product.kod}</p>
-                    {product.vyrobce && <p className="mt-1 text-sm text-gray-600">Výrobce: {product.vyrobce}</p>}
-                    {product.kategorie && <p className="mt-1 text-sm text-gray-600">Kategorie: {product.kategorie}</p>}
-                    
-                    {product.kratky_popis ? (
-                      <p className="mt-3 text-sm text-gray-500 line-clamp-2" title={product.kratky_popis}>
-                        {product.kratky_popis}
-                      </p>
-                    ) : product.popis ? (
-                      <p className="mt-3 text-sm text-gray-500 line-clamp-2" title={product.popis}>
-                        {product.popis}
-                      </p>
-                    ) : null}
-                    
-                    <div className="mt-4">
-                      <div className="flex justify-between items-end">
-                        <div>
-                          <p className="text-lg font-bold text-gray-900">
-                            {new Intl.NumberFormat('cs-CZ', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(product.cena_s_dph)} Kč
-                          </p>
-                          <p className="text-sm text-gray-600">
-                            {new Intl.NumberFormat('cs-CZ', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(product.cena_bez_dph)} Kč bez DPH
-                          </p>
+          <>
+            {/* Standardní zobrazení */}
+            {viewMode === 'standard' && (
+              <div>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {products.map(product => (
+                    <div key={product.kod} className="bg-white overflow-hidden shadow rounded-lg flex flex-col">
+                      <div className="px-4 py-5 sm:p-6 flex-grow">
+                        <div className="flex justify-between items-start">
+                          <h3 className="text-lg font-medium text-gray-900 truncate" title={product.nazev}>
+                            {product.nazev}
+                          </h3>
+                          <span className={`px-2 py-1 text-xs rounded-full ${
+                            typeof product.dostupnost === 'number'
+                              ? (product.dostupnost > 0 ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800')
+                              : String(product.dostupnost).toLowerCase().includes('skladem')
+                                ? 'bg-green-100 text-green-800' 
+                                : 'bg-orange-100 text-orange-800'
+                          }`}>
+                            {typeof product.dostupnost === 'number'
+                              ? (product.dostupnost > 0 ? `Skladem (${product.dostupnost})` : 'Není skladem')
+                              : product.dostupnost
+                            }
+                          </span>
                         </div>
-                        <button
-                          className="px-3 py-1 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700"
-                          onClick={() => setSelectedProductId(product.id || product.kod)}
-                        >
-                          Detaily
-                        </button>
+                        <p className="mt-1 text-sm text-gray-600">Kód: {product.kod}</p>
+                        {product.vyrobce && <p className="mt-1 text-sm text-gray-600">Výrobce: {product.vyrobce}</p>}
+                        {product.kategorie && <p className="mt-1 text-sm text-gray-600">Kategorie: {product.kategorie}</p>}
+                        
+                        {product.kratky_popis ? (
+                          <p className="mt-3 text-sm text-gray-500 line-clamp-2" title={product.kratky_popis}>
+                            {product.kratky_popis}
+                          </p>
+                        ) : product.popis ? (
+                          <p className="mt-3 text-sm text-gray-500 line-clamp-2" title={product.popis}>
+                            {product.popis}
+                          </p>
+                        ) : null}
+                        
+                        <div className="mt-4">
+                          <div className="flex justify-between items-end">
+                            <div>
+                              <p className="text-lg font-bold text-gray-900">
+                                {new Intl.NumberFormat('cs-CZ', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(product.cena_s_dph)} Kč
+                              </p>
+                              <p className="text-sm text-gray-600">
+                                {new Intl.NumberFormat('cs-CZ', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(product.cena_bez_dph)} Kč bez DPH
+                              </p>
+                            </div>
+                            <button
+                              className="px-3 py-1 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700"
+                              onClick={() => setSelectedProductId(product.id || product.kod)}
+                            >
+                              Detaily
+                            </button>
+                          </div>
+                        </div>
                       </div>
                     </div>
-                  </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-            
-            {/* Stránkování */}
-            {totalPages > 1 && (
-              <div className="mt-6 flex justify-center">
-                <nav className="flex space-x-2" aria-label="Pagination">
-                  <button
-                    onClick={() => setPage(p => Math.max(1, p - 1))}
-                    disabled={page === 1}
-                    className="px-3 py-1 rounded-md text-sm font-medium text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    Předchozí
-                  </button>
-                  
-                  <span className="px-3 py-1 rounded-md text-sm font-medium text-gray-700 bg-white border border-gray-300">
-                    Stránka {page} z {totalPages}
-                  </span>
-                  
-                  <button
-                    onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                    disabled={page === totalPages}
-                    className="px-3 py-1 rounded-md text-sm font-medium text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    Další
-                  </button>
-                </nav>
+                
+                {/* Stránkování pro standardní režim */}
+                {totalPages > 1 && (
+                  <div className="mt-6 flex justify-center">
+                    <nav className="flex space-x-2" aria-label="Pagination">
+                      <button
+                        onClick={() => setPage(p => Math.max(1, p - 1))}
+                        disabled={page === 1}
+                        className="px-3 py-1 rounded-md text-sm font-medium text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        Předchozí
+                      </button>
+                      
+                      <span className="px-3 py-1 rounded-md text-sm font-medium text-gray-700 bg-white border border-gray-300">
+                        Stránka {page} z {totalPages}
+                      </span>
+                      
+                      <button
+                        onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                        disabled={page === totalPages}
+                        className="px-3 py-1 rounded-md text-sm font-medium text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        Další
+                      </button>
+                    </nav>
+                  </div>
+                )}
               </div>
             )}
-          </div>
+            
+            {/* Optimalizovaný seznam produktů */}
+            {viewMode === 'optimized' && (
+              <div className="h-[calc(100vh-250px)]">
+                <OptimizedProductList />
+              </div>
+            )}
+            
+            {/* Virtualizovaný seznam produktů */}
+            {viewMode === 'virtualized' && (
+              <div className="h-[calc(100vh-250px)]">
+                <VirtualizedProductList />
+              </div>
+            )}
+          </>
         )}
       </main>
 
