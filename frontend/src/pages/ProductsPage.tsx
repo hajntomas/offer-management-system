@@ -2,6 +2,8 @@
 import { useEffect, useState, useRef } from 'react';
 import { api, Product, ProductFilterOptions } from '../services/api';
 import { ProductDetail } from '../components/ProductDetail';
+import { OptimizedProductList } from '../components/OptimizedProductList';
+import { VirtualizedProductList } from '../components/VirtualizedProductList';
 
 export function ProductsPage() {
   // Stav
