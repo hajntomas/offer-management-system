@@ -1,5 +1,5 @@
 // backend/api/src/parsers/xmlParser.js
-// Parser pro XML produktové feedy
+// Optimalizovaný parser pro XML produktové feedy
 
 /**
  * Parsuje XML feed s ceníkem produktů
@@ -8,50 +8,76 @@
  */
 export function parseXmlCenikProducts(xmlText) {
   try {
-    // Hledání celých produktových elementů
-    const productRegex = /<product>([\s\S]*?)<\/product>/g;
+    // Pro lepší výkon použijeme jeden komplexnější regex místo několika jednodušších
     const products = [];
-    let match;
+    const productRegex = /<product>([\s\S]*?)<\/product>/g;
     
+    // Předkompilujeme regex pro extrakci hodnot
+    const extractRegex = (tag) => new RegExp(`<${tag}>(.*?)<\\/${tag}>`, "i");
+    
+    // Cache pro často používané regex
+    const tagRegexCache = {
+      kod: extractRegex("kod"),
+      ean: extractRegex("ean"),
+      nazev: extractRegex("nazev"),
+      vasecenabezdph: extractRegex("vasecenabezdph"),
+      vasecenasdph: extractRegex("vasecenasdph"),
+      dostupnost: extractRegex("dostupnost"),
+      eubezdph: extractRegex("eubezdph"),
+      eusdph: extractRegex("eusdph"),
+      remabezdph: extractRegex("remabezdph"),
+      remadph: extractRegex("remadph")
+    };
+    
+    let match;
     while ((match = productRegex.exec(xmlText)) !== null) {
       const productContent = match[1];
       
-      // Extrakce dat z produktu
-      const kod = extractXmlValue(productContent, "kod");
-      const ean = extractXmlValue(productContent, "ean");
+      // Extrakce dat z produktu s použitím cache
+      const extractValue = (tag) => {
+        const regex = tagRegexCache[tag] || extractRegex(tag);
+        const match = productContent.match(regex);
+        return match ? match[1].trim() : "";
+      };
       
-      // Extrakce názvu a odstranění CDATA a HTML tagů
-      const nazev = cleanText(extractXmlValue(productContent, "nazev"));
+      const kod = extractValue("kod");
       
-      // Extrakce cen a převod na čísla
-      const cenaBezDph = parseFloat(extractXmlValue(productContent, "vasecenabezdph")) || 0;
-      const cenaSDph = parseFloat(extractXmlValue(productContent, "vasecenasdph")) || 0;
+      // Přeskočíme produkty bez kódu
+      if (!kod) continue;
       
-      // Získání dostupnosti a převod na celé číslo
-      const dostupnost = parseInt(extractXmlValue(productContent, "dostupnost")) || 0;
+      // Získání všech hodnot najednou
+      const ean = extractValue("ean");
+      const nazev = cleanText(extractValue("nazev"));
       
-      // Další cenové údaje
-      const euBezDph = parseFloat(extractXmlValue(productContent, "eubezdph")) || 0;
-      const eusDph = parseFloat(extractXmlValue(productContent, "eusdph")) || 0;
-      const remaBezDph = extractXmlValue(productContent, "remabezdph");
-      const remaDph = extractXmlValue(productContent, "remadph");
+      // Převod číselných hodnot s ošetřením null/undefined
+      const parseNumberValue = (value) => {
+        const num = parseFloat(value);
+        return isNaN(num) ? 0 : num;
+      };
       
-      // Přidání do pole produktů
-      if (kod) {
-        products.push({
-          kod,
-          ean,
-          nazev,
-          cena_bez_dph: cenaBezDph,
-          cena_s_dph: cenaSDph,
-          dostupnost,
-          eu_bez_dph: euBezDph,
-          eu_s_dph: eusDph,
-          rema_bez_dph: remaBezDph ? parseFloat(remaBezDph) : null,
-          rema_dph: remaDph ? parseFloat(remaDph) : null,
-          source: "xml_cenik"
-        });
-      }
+      const cenaBezDph = parseNumberValue(extractValue("vasecenabezdph"));
+      const cenaSDph = parseNumberValue(extractValue("vasecenasdph"));
+      const dostupnost = parseInt(extractValue("dostupnost")) || 0;
+      const euBezDph = parseNumberValue(extractValue("eubezdph"));
+      const eusDph = parseNumberValue(extractValue("eusdph"));
+      
+      // Volitelné hodnoty
+      const remaBezDph = extractValue("remabezdph");
+      const remaDph = extractValue("remadph");
+      
+      products.push({
+        kod,
+        ean,
+        nazev,
+        cena_bez_dph: cenaBezDph,
+        cena_s_dph: cenaSDph,
+        dostupnost,
+        eu_bez_dph: euBezDph,
+        eu_s_dph: eusDph,
+        rema_bez_dph: remaBezDph ? parseFloat(remaBezDph) : null,
+        rema_dph: remaDph ? parseFloat(remaDph) : null,
+        source: "xml_cenik"
+      });
     }
     
     return products;
@@ -62,73 +88,78 @@ export function parseXmlCenikProducts(xmlText) {
 }
 
 /**
- * Parsuje XML feed s popisky produktů
+ * Parsuje XML feed s popisky produktů - optimalizovaná verze
  * @param {string} xmlText - XML text z feedu popisků
  * @returns {Array} Seznam produktů s popisky
  */
 export function parseXmlPopiskyProducts(xmlText) {
   try {
-    // Hledání celých produktových elementů
-    const productRegex = /<product>([\s\S]*?)<\/product>/g;
     const products = [];
-    let match;
+    const productRegex = /<product>([\s\S]*?)<\/product>/g;
     
+    // Předkompilované regex pro nejčastější tagy
+    const tagRegexCache = {
+      kod: /<kod>(.*?)<\/kod>/i,
+      ean: /<ean>(.*?)<\/ean>/i,
+      nazev: /<nazev>(.*?)<\/nazev>/i,
+      kategorie: /<kategorie>(.*?)<\/kategorie>/i,
+      vyrobce: /<vyrobce>(.*?)<\/vyrobce>/i,
+      dodani: /<dodani>(.*?)<\/dodani>/i,
+      minodber: /<minodber>(.*?)<\/minodber>/i,
+      jednotka: /<jednotka>(.*?)<\/jednotka>/i,
+      kratkypopis: /<kratkypopis>(.*?)<\/kratkypopis>/i,
+      popis: /<popis>(.*?)<\/popis>/i,
+      obrazek: /<obrazek>(.*?)<\/obrazek>/i
+    };
+    
+    let match;
     while ((match = productRegex.exec(xmlText)) !== null) {
       const productContent = match[1];
       
+      // Extrakce hodnoty s použitím předkompilovaného regexu
+      const extractValue = (tag) => {
+        const regex = tagRegexCache[tag] || new RegExp(`<${tag}>(.*?)<\\/${tag}>`, "i");
+        const match = productContent.match(regex);
+        return match ? match[1].trim() : "";
+      };
+      
+      const kod = extractValue("kod");
+      
+      // Přeskočíme produkty bez kódu
+      if (!kod) continue;
+      
       // Extrakce základních dat
-      const kod = extractXmlValue(productContent, "kod");
-      const ean = extractXmlValue(productContent, "ean");
+      const product = {
+        kod,
+        ean: extractValue("ean"),
+        nazev: cleanText(extractValue("nazev")),
+        kategorie: cleanText(extractValue("kategorie")),
+        vyrobce: cleanText(extractValue("vyrobce")),
+        dodani: extractValue("dodani"),
+        minodber: extractValue("minodber"),
+        jednotka: extractValue("jednotka"),
+        kratky_popis: cleanText(extractValue("kratkypopis")),
+        popis: cleanText(extractValue("popis")),
+        source: "xml_popisky"
+      };
       
-      // Extrakce názvu a odstranění CDATA a HTML tagů
-      const nazev = cleanText(extractXmlValue(productContent, "nazev"));
-      
-      // Extrakce dalších polí
-      const kategorie = cleanText(extractXmlValue(productContent, "kategorie"));
-      const vyrobce = cleanText(extractXmlValue(productContent, "vyrobce"));
-      const dodani = extractXmlValue(productContent, "dodani");
-      const minodber = extractXmlValue(productContent, "minodber");
-      const jednotka = extractXmlValue(productContent, "jednotka");
-      
-      // Extrakce popisu a krátkého popisu
-      const kratkyPopis = cleanText(extractXmlValue(productContent, "kratkypopis"));
-      const popis = cleanText(extractXmlValue(productContent, "popis"));
-      
-      // Získání URL obrázku
-      let obrazek = extractXmlValue(productContent, "obrazek");
+      // Získání URL obrázku - optimalizováno
+      let obrazek = extractValue("obrazek");
       if (!obrazek) {
         // Pokus najít obrazek s id="1" pokud existuje
-        const obrazekMatch = productContent.match(/<obrazek id="1">(.*?)<\/obrazek>/);
+        const obrazekWithIdRegex = /<obrazek id="1">(.*?)<\/obrazek>/;
+        const obrazekMatch = productContent.match(obrazekWithIdRegex);
         if (obrazekMatch) {
           obrazek = obrazekMatch[1];
         }
       }
+      product.obrazek = obrazek;
       
-      // Extrakce parametrů
-      const parametryText = extractParametersFromXml(productContent);
+      // Extrakce parametrů a dokumentů - optimalizováno
+      product.parametry = extractParametersFromXml(productContent);
+      product.dokumenty = extractDocumentsFromXml(productContent);
       
-      // Extrakce dokumentů (datasheets, manuals)
-      const dokumentyText = extractDocumentsFromXml(productContent);
-      
-      // Přidání do pole produktů
-      if (kod) {
-        products.push({
-          kod,
-          ean,
-          nazev,
-          kategorie,
-          vyrobce,
-          dodani,
-          minodber,
-          jednotka,
-          popis,
-          kratky_popis: kratkyPopis,
-          obrazek,
-          parametry: parametryText,
-          dokumenty: dokumentyText,
-          source: "xml_popisky"
-        });
-      }
+      products.push(product);
     }
     
     return products;
@@ -139,34 +170,23 @@ export function parseXmlPopiskyProducts(xmlText) {
 }
 
 /**
- * Extrahuje hodnotu z XML tagu
- * @param {string} text - XML text
- * @param {string} tag - Název tagu
- * @returns {string} Hodnota tagu nebo prázdný řetězec
- */
-function extractXmlValue(text, tag) {
-  const regex = new RegExp("<" + tag + ">(.*?)<\\/" + tag + ">", "i");
-  const match = text.match(regex);
-  return match ? match[1].trim() : "";
-}
-
-/**
- * Extrahuje parametry z XML
+ * Extrahuje parametry z XML - optimalizovaná verze
  * @param {string} productContent - XML obsah produktu
  * @returns {string} Textová reprezentace parametrů
  */
 function extractParametersFromXml(productContent) {
-  let parametryText = "";
-  const paramRegex = /<parametr>([\s\S]*?)<\/parametr>/g;
-  let paramMatch;
+  // Využití vícenásobného zachycení v regexu pro lepší výkon
+  const paramRegex = /<parametr>[\s\S]*?<nazev>(.*?)<\/nazev>[\s\S]*?<hodnota>(.*?)<\/hodnota>[\s\S]*?<\/parametr>/g;
   
-  while ((paramMatch = paramRegex.exec(productContent)) !== null) {
-    const paramContent = paramMatch[1];
-    const paramNazev = extractXmlValue(paramContent, "nazev");
-    const paramHodnota = extractXmlValue(paramContent, "hodnota");
+  let parametryText = "";
+  let match;
+  
+  while ((match = paramRegex.exec(productContent)) !== null) {
+    const paramNazev = match[1].trim();
+    const paramHodnota = match[2].trim();
     
     if (paramNazev && paramHodnota) {
-      parametryText += paramNazev + ": " + paramHodnota + "\n";
+      parametryText += `${paramNazev}: ${paramHodnota}\n`;
     }
   }
   
@@ -174,96 +194,125 @@ function extractParametersFromXml(productContent) {
 }
 
 /**
- * Extrahuje dokumenty z XML
+ * Extrahuje dokumenty z XML - optimalizovaná verze
  * @param {string} productContent - XML obsah produktu
  * @returns {string} Textová reprezentace dokumentů
  */
 function extractDocumentsFromXml(productContent) {
-  let dokumentyText = "";
+  // Sestavení řetězce v jednom průchodu
+  const documents = [];
   
   // Datasheets
   const datasheetRegex = /<datasheet id="[^"]*">(.*?)<\/datasheet>/g;
-  let datasheetMatch;
-  while ((datasheetMatch = datasheetRegex.exec(productContent)) !== null) {
-    dokumentyText += "Datasheet: " + datasheetMatch[1] + "\n";
+  let match;
+  while ((match = datasheetRegex.exec(productContent)) !== null) {
+    documents.push(`Datasheet: ${match[1]}`);
   }
   
   // Manuals
   const manualRegex = /<manual id="[^"]*">(.*?)<\/manual>/g;
-  let manualMatch;
-  while ((manualMatch = manualRegex.exec(productContent)) !== null) {
-    dokumentyText += "Manual: " + manualMatch[1] + "\n";
+  while ((match = manualRegex.exec(productContent)) !== null) {
+    documents.push(`Manual: ${match[1]}`);
   }
   
-  return dokumentyText;
+  return documents.length > 0 ? documents.join("\n") : "";
 }
 
 /**
- * Čistí text od CDATA a HTML tagů
+ * Čistí text od CDATA a HTML tagů - optimalizováno
  * @param {string} text - Text k vyčištění
  * @returns {string} Vyčištěný text
  */
 function cleanText(text) {
   if (!text) return "";
   
-  // Odstranění CDATA tagů
-  const cdataMatch = text.match(/\<\!\[CDATA\[(.*?)\]\]\>/);
-  if (cdataMatch) {
-    text = cdataMatch[1].trim();
-  }
+  // Použití jednoho regexu pro odstranění CDATA
+  text = text.replace(/\<\!\[CDATA\[(.*?)\]\]\>/, "$1");
   
-  // Odstranění HTML tagů, zejména <sub> a </sub>
-  text = text.replace(/<sub>(.*?)<\/sub>/gi, "$1"); // Speciálně pro <sub> tagy
-  text = text.replace(/<[^>]*>/g, ""); // Odstranění všech ostatních HTML tagů
-  
-  return text;
+  // Odstranění HTML tagů v jednom kroku
+  return text.replace(/<[^>]*>/g, "").trim();
 }
 
-// backend/api/src/parsers/excelParser.js
-// Parser pro Excel soubory
-
+// Optimalizované parsování Excel souborů
 /**
  * Parsuje Excel soubor produktů
  * @param {ArrayBuffer} buffer - Data souboru Excel
- * @returns {Array} Seznam produktů
+ * @returns {Promise<Array>} Seznam produktů
  */
 export async function parseExcelProducts(buffer) {
   try {
     // Importovat xlsx knihovnu pouze když je potřeba (lazy loading)
     const XLSX = await import('xlsx');
     
-    // Načtení Excel souboru
-    const workbook = XLSX.read(new Uint8Array(buffer), { type: 'array' });
+    // Načtení Excel souboru s optimalizovaným nastavením
+    const workbook = XLSX.read(new Uint8Array(buffer), { 
+      type: 'array',
+      cellDates: true,  // Správné formátování dat
+      cellNF: false,    // Neukládat formát čísel pro úsporu paměti
+      cellText: false   // Neukládat originální text buněk pro úsporu paměti
+    });
     
     // Získání prvního listu
     const worksheet = workbook.Sheets[workbook.SheetNames[0]];
     
-    // Převod na JSON
-    const jsonData = XLSX.utils.sheet_to_json(worksheet);
+    // Převod na JSON s definovanými hlavičkami pro rychlejší zpracování
+    const jsonData = XLSX.utils.sheet_to_json(worksheet, {
+      defval: '',  // Výchozí hodnota pro prázdné buňky
+      raw: false   // Parsování hodnot podle typu buňky
+    });
     
-    // Mapování dat na formát produktů
-    return jsonData.map(row => {
-      // Vytvoření produktu s kontrolou existence polí
-      return {
-        kod: String(row['Kód'] || row['kod'] || ''),
-        ean: String(row['EAN'] || row['ean'] || ''),
-        nazev: String(row['Název'] || row['nazev'] || ''),
-        cena_bez_dph: parseNumericValue(row['Cena bez DPH'] || row['cena_bez_dph']),
-        cena_s_dph: parseNumericValue(row['Cena s DPH'] || row['cena_s_dph']),
-        dostupnost: parseInt(String(row['Dostupnost'] || row['dostupnost'] || '0')),
-        kategorie: String(row['Kategorie'] || row['kategorie'] || ''),
-        vyrobce: String(row['Výrobce'] || row['vyrobce'] || ''),
-        dodani: String(row['Dodání'] || row['dodani'] || ''),
-        minodber: String(row['Min. odběr'] || row['minodber'] || ''),
-        jednotka: String(row['Jednotka'] || row['jednotka'] || ''),
-        popis: String(row['Popis'] || row['popis'] || ''),
-        kratky_popis: String(row['Krátký popis'] || row['kratky_popis'] || ''),
-        obrazek: String(row['Obrázek'] || row['obrazek'] || ''),
-        parametry: String(row['Parametry'] || row['parametry'] || ''),
-        dokumenty: String(row['Dokumenty'] || row['dokumenty'] || ''),
-        source: "excel"
-      };
-    }).filter(product => product.kod); // Filtrovat produkty bez kódu
+    // Předem definovaná mapování názvů sloupců pro zrychlení přístupu
+    const columnMappings = {
+      kod: ['Kód', 'kod'],
+      ean: ['EAN', 'ean'],
+      nazev: ['Název', 'nazev'],
+      cena_bez_dph: ['Cena bez DPH', 'cena_bez_dph'],
+      cena_s_dph: ['Cena s DPH', 'cena_s_dph'],
+      dostupnost: ['Dostupnost', 'dostupnost'],
+      kategorie: ['Kategorie', 'kategorie'],
+      vyrobce: ['Výrobce', 'vyrobce'],
+      dodani: ['Dodání', 'dodani'],
+      minodber: ['Min. odběr', 'minodber'],
+      jednotka: ['Jednotka', 'jednotka'],
+      popis: ['Popis', 'popis'],
+      kratky_popis: ['Krátký popis', 'kratky_popis'],
+      obrazek: ['Obrázek', 'obrazek'],
+      parametry: ['Parametry', 'parametry'],
+      dokumenty: ['Dokumenty', 'dokumenty']
+    };
+    
+    // Optimalizované mapování dat s předem definovanými sloupci
+    return jsonData
+      .map(row => {
+        const product = { source: "excel" };
+        
+        // Mapování hodnot s optimalizovaným přístupem
+        Object.entries(columnMappings).forEach(([key, possibleColumns]) => {
+          let value = null;
+          
+          // Najít první existující hodnotu podle možných názvů sloupců
+          for (const column of possibleColumns) {
+            if (row[column] !== undefined) {
+              value = row[column];
+              break;
+            }
+          }
+          
+          // Zpracování podle typu pole
+          if (value !== null) {
+            if (['cena_bez_dph', 'cena_s_dph'].includes(key)) {
+              product[key] = parseNumericValue(value);
+            } else if (key === 'dostupnost') {
+              product[key] = parseInt(String(value || '0'));
+            } else {
+              product[key] = String(value || '');
+            }
+          }
+        });
+        
+        return product;
+      })
+      .filter(product => product.kod); // Filtrovat produkty bez kódu
   } catch (error) {
     console.error('Error parsing Excel:', error);
     throw new Error(`Chyba při zpracování Excel souboru: ${error.message}`);
