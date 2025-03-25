@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Search, Filter, ChevronDown, ChevronUp, Columns, Settings, RefreshCw, Download, List, Grid } from 'lucide-react';
+import { Search, Filter, ChevronDown, ChevronUp, Columns, Settings, RefreshCw, Download, List, Grid } from '../components/Icons';
 
 const OptimizedProductList = () => {
   // Stavy
