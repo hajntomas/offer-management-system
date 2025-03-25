@@ -1,17 +1,11 @@
 // frontend/src/services/api.ts
-// Aktualizovaná verze pro použití lokálních proxy funkcí místo přímého volání Cloudflare Worker
+// Optimalizovaná verze API klienta s použitím generických funkcí
 
 // API URL konfigurace
-const LOGIN_URL = '/api/auth/login';
-// Použijeme přímé volání Worker API
-const API_URL = 'https://broad-darkness-f0a6.hajn-tomas.workers.dev'; // Přímé volání Cloudflare Worker
+const API_URL = 'https://broad-darkness-f0a6.hajn-tomas.workers.dev';
 
-// Přidání podpory pro debug režim
-const DEBUG = true; // V produkci nastavit na false
-
-// Fallback data pro případ výpadku endpointů
-const FALLBACK_CATEGORIES = ["notebooky", "počítače", "monitory", "příslušenství"];
-const FALLBACK_MANUFACTURERS = ["Dell", "Apple", "HP", "Lenovo", "Custom"];
+// Debug režim - v produkci nastavit na false
+const DEBUG = process.env.NODE_ENV !== 'production';
 
 // Typy
 export type Product = {
@@ -86,604 +80,268 @@ export type ApiError = {
   originalError?: any;
 };
 
+// Fallback data pro případ výpadku endpointů
+const FALLBACK = {
+  CATEGORIES: ["notebooky", "počítače", "monitory", "příslušenství"],
+  MANUFACTURERS: ["Dell", "Apple", "HP", "Lenovo", "Custom"]
+};
+
 // Pomocné funkce pro logování
-const logApiCall = (endpoint: string, method: string) => {
-  if (DEBUG) console.log(`🌐 API Call: ${method} ${endpoint}`);
+const logDebug = (message: string, data?: any) => {
+  if (DEBUG) console.log(`🌐 ${message}`, data ? data : '');
+};
+
+const logError = (message: string, error?: any) => {
+  if (DEBUG) console.error(`❌ ${message}`, error ? error : '');
 };
 
 // Získání autorizačního tokenu
-const getAuthHeader = () => {
+const getAuthHeader = (): Record<string, string> => {
   const token = localStorage.getItem('accessToken');
-  if (token) {
-    if (DEBUG) console.log('✅ Autorizační token nalezen');
-    return { Authorization: `Bearer ${token}` };
-  } else {
-    if (DEBUG) console.warn('⚠️ Autorizační token chybí');
-    return {};
+  return token ? { Authorization: `Bearer ${token}` } : {};
+};
+
+// Generická funkce pro zpracování HTTP odpovědi
+const handleResponse = async <T>(response: Response): Promise<T> => {
+  try {
+    // Získání textu odpovědi
+    const responseText = await response.text();
+    logDebug(`Response status: ${response.status}`, responseText.substring(0, 100));
+    
+    // Parsování JSON
+    let data: any = {};
+    if (responseText.trim()) {
+      try {
+        data = JSON.parse(responseText);
+      } catch (error) {
+        throw {
+          message: 'Neplatná odpověď serveru - nebylo možné parsovat JSON',
+          status: response.status,
+          details: responseText,
+          originalError: error
+        };
+      }
+    }
+    
+    // Kontrola chyb
+    if (!response.ok) {
+      throw {
+        message: data.error || data.message || `HTTP chyba: ${response.status} ${response.statusText}`,
+        status: response.status,
+        details: data.details || JSON.stringify(data)
+      };
+    }
+    
+    return data as T;
+  } catch (error: any) {
+    // Přeformátování chyby pro konzistentní zpracování
+    const apiError: ApiError = {
+      message: error.message || 'Neznámá chyba při komunikaci s API',
+      status: error.status || 500,
+      details: error.details,
+      originalError: error
+    };
+    throw apiError;
   }
 };
 
-// Vylepšená funkce pro zpracování odpovědi
-const handleResponse = async <T>(response: Response): Promise<T> => {
-  // Kontrola typu odpovědi
-  const contentType = response.headers.get('Content-Type') || '';
-  if (DEBUG) console.log(`📄 Response Content-Type: ${contentType}, Status: ${response.status}`);
+// Generická funkce pro API požadavky
+const fetchApi = async <T>(
+  endpoint: string, 
+  method: string = 'GET', 
+  body?: any, 
+  customHeaders?: Record<string, string>,
+  useFormData: boolean = false
+): Promise<T> => {
+  const url = endpoint.startsWith('http') ? endpoint : `${API_URL}${endpoint.startsWith('/') ? endpoint : '/' + endpoint}`;
+  logDebug(`${method} ${url}`);
   
-  // Nejprve získáme text odpovědi pro diagnostiku
-  let responseText: string;
   try {
-    responseText = await response.text();
-    if (DEBUG) console.log(`📄 Response body (first 100 chars): ${responseText.substring(0, 100)}${responseText.length > 100 ? '...' : ''}`);
-  } catch (error) {
-    if (DEBUG) console.error('❌ Chyba při čtení odpovědi:', error);
-    throw new Error('Nelze přečíst odpověď serveru');
-  }
-  
-  // Pokus o parsování jako JSON
-  let data: any;
-  try {
-    // Pokud je text prázdný, vrátíme prázdný objekt
-    if (!responseText.trim()) {
-      data = {};
-    } else {
-      data = JSON.parse(responseText);
-    }
-  } catch (error) {
-    if (DEBUG) {
-      console.error('❌ Chyba při parsování JSON odpovědi:');
-      console.error('Text odpovědi:', responseText);
-      console.error('Chyba:', error);
+    // Základní hlavičky
+    const headers: Record<string, string> = {
+      'Accept': 'application/json',
+      ...getAuthHeader(),
+      ...customHeaders
+    };
+    
+    // Přidání Content-Type pouze pokud nepoužíváme FormData
+    if (!useFormData && body && method !== 'GET') {
+      headers['Content-Type'] = 'application/json';
     }
     
-    // Vytvoříme vlastní chybu s detaily
-    const apiError: ApiError = {
-      message: 'Neplatná odpověď serveru - nebylo možné parsovat JSON',
-      status: response.status,
-      details: responseText,
+    // Konfigurace fetch požadavku
+    const fetchOptions: RequestInit = {
+      method,
+      headers,
+      body: useFormData ? body : body ? JSON.stringify(body) : undefined
+    };
+    
+    // Odeslání požadavku
+    const response = await fetch(url, fetchOptions);
+    return handleResponse<T>(response);
+  } catch (error: any) {
+    logError(`Error calling ${method} ${endpoint}:`, error);
+    
+    // Pokud je to ApiError, předáme ho dál
+    if (error.status) throw error;
+    
+    // Jinak vytvoříme novou ApiError
+    throw {
+      message: error.message || `Chyba při volání ${method} ${endpoint}`,
       originalError: error
     };
-    
-    throw apiError;
   }
-  
-  // Kontrola, zda je odpověď v pořádku
-  if (!response.ok) {
-    if (DEBUG) console.error(`❌ Chyba API: ${response.status}`, data);
-    
-    // Vytvoření detailní chybové zprávy
-    const apiError: ApiError = {
-      message: data.error || data.message || `HTTP chyba: ${response.status} ${response.statusText}`,
-      status: response.status,
-      details: data.details || JSON.stringify(data)
-    };
-    
-    throw apiError;
-  }
-  
-  if (DEBUG) console.log(`✅ Odpověď úspěšně zpracována`);
-  return data as T;
 };
 
 // Pomocná funkce pro sestavení URL s parametry
-const buildUrlWithParams = (baseUrl: string, params: Record<string, any>): string => {
-  const url = new URL(baseUrl, window.location.origin);
+const buildUrlWithParams = (endpoint: string, params: Record<string, any>): string => {
+  // Filtrování undefined a prázdných hodnot
+  const filteredParams = Object.entries(params)
+    .filter(([_, value]) => value !== undefined && value !== null && value !== '')
+    .reduce((obj, [key, value]) => ({ ...obj, [key]: value }), {});
   
-  // Přidání parametrů, které nejsou undefined nebo prázdné řetězce
-  Object.entries(params).forEach(([key, value]) => {
-    if (value !== undefined && value !== null && value !== '') {
-      url.searchParams.append(key, String(value));
-    }
-  });
+  // Pokud nejsou žádné parametry, vrátíme původní endpoint
+  if (Object.keys(filteredParams).length === 0) {
+    return endpoint;
+  }
   
-  return url.toString();
+  // Sestavení query stringu
+  const queryString = new URLSearchParams(
+    Object.entries(filteredParams).map(([key, value]) => [key, String(value)])
+  ).toString();
+  
+  return `${endpoint}${endpoint.includes('?') ? '&' : '?'}${queryString}`;
 };
 
-// Aktualizovaná API služba s podporou nových produktových endpointů
+// Implementace API rozhraní
 export const api = {
-  // Pomocná funkce pro přímé testování API endpointů
-  testEndpoint: async (path: string): Promise<any> => {
-    // Pro přímé externí URL zachováme původní URL, jinak předpokládáme relativní cestu k proxy
-    const url = path.startsWith('http') ? path : `${API_URL}${path.startsWith('/') ? path : '/' + path}`;
-    if (DEBUG) console.log(`🔍 Testing endpoint: ${url}`);
-    
-    try {
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: {
-          'Accept': 'application/json',
-          ...getAuthHeader()
-        }
-      });
-      
-      return handleResponse(response);
-    } catch (error) {
-      if (DEBUG) console.error(`❌ Test endpoint error:`, error);
-      throw error;
-    }
+  // Testování API endpointů
+  testEndpoint: (path: string): Promise<any> => {
+    return fetchApi(path);
   },
   
   // Autentizace
-  login: async (email: string, password: string) => {
-    logApiCall('login', 'POST');
-    try {
-      if (DEBUG) console.log('🔑 Pokus o přihlášení:', { email });
-      
-      const response = await fetch(LOGIN_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        body: JSON.stringify({ email, password }),
-      });
-      
-      const data = await handleResponse(response);
-      if (DEBUG) console.log('✅ Přihlášení úspěšné');
-      return data;
-    } catch (error: any) {
-      if (DEBUG) console.error('❌ Chyba přihlášení:', error);
-      
-      // Vytvoření user-friendly zprávy
-      if (error.status === 401) {
-        throw new Error('Neplatné přihlašovací údaje');
-      } else {
-        throw new Error(error.message || 'Chyba při přihlášení');
-      }
-    }
+  login: (email: string, password: string): Promise<any> => {
+    return fetchApi('/auth/login', 'POST', { email, password });
   },
   
-  // Produkty - AKTUALIZOVANÉ METODY S FALLBACKEM
-  
-  // Získání seznamu produktů s filtrováním a stránkováním
+  // Produkty
   getProducts: async (options: ProductFilterOptions = {}): Promise<Product[]> => {
-    logApiCall('products', 'GET');
     try {
-      const url = buildUrlWithParams(`${API_URL}/products`, options);
-      
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          ...getAuthHeader()
-        }
-      });
-      
-      const data = await handleResponse<ProductsResponse>(response);
+      const url = buildUrlWithParams('/products', options);
+      const data = await fetchApi<ProductsResponse>(url);
       return data.products || [];
-    } catch (error: any) {
-      if (DEBUG) console.error('❌ Chyba načítání produktů:', error);
-      throw new Error(error.message || 'Chyba při načítání produktů');
-    }
-  },
-  
-  // Získání detailu produktu
-  getProduct: async (id: string): Promise<Product> => {
-    logApiCall(`products/${id}`, 'GET');
-    try {
-      const response = await fetch(`${API_URL}/products/${id}`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          ...getAuthHeader()
-        }
-      });
-      
-      return handleResponse<Product>(response);
-    } catch (error: any) {
-      if (DEBUG) console.error(`❌ Chyba načítání produktu ${id}:`, error);
-      throw new Error(error.message || `Chyba při načítání produktu`);
-    }
-  },
-  
-  // Získání kategorií produktů - S FALLBACKEM
-  getProductCategories: async (): Promise<string[]> => {
-    logApiCall('products/categories', 'GET');
-    try {
-      // Nejprve zkusíme přímý přístup přes debug endpoint
-      try {
-        // Test nového diagnostického endpointu
-        const response = await fetch(`${API_URL}/products/kv-test`, {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-            ...getAuthHeader()
-          }
-        });
-        
-        if (response.ok) {
-          console.log("🔍 KV-test endpoint works, initializing KV data");
-        }
-      } catch (e) {
-        console.log("🔍 KV-test endpoint not available");
-      }
-      
-      // Pokus o standardní získání kategorií
-      const response = await fetch(`${API_URL}/products/categories`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          ...getAuthHeader()
-        }
-      });
-      
-      // Pokud se odpověď vrátila ok, použijeme ji
-      if (response.ok) {
-        const data = await handleResponse<string[]>(response);
-        if (Array.isArray(data) && data.length > 0) {
-          return data;
-        }
-      }
-      
-      // Fallback - pokud selže API nebo vrátí prázdné pole
-      console.warn('⚠️ Použití fallback dat pro kategorie');
-      return FALLBACK_CATEGORIES;
-    } catch (error: any) {
-      if (DEBUG) console.error('❌ Chyba načítání kategorií:', error);
-      console.warn('⚠️ Použití fallback dat pro kategorie po chybě');
-      return FALLBACK_CATEGORIES;
-    }
-  },
-  
-  // Získání výrobců produktů - S FALLBACKEM
-  getProductManufacturers: async (): Promise<string[]> => {
-    logApiCall('products/manufacturers', 'GET');
-    try {
-      const response = await fetch(`${API_URL}/products/manufacturers`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          ...getAuthHeader()
-        }
-      });
-      
-      // Pokud se odpověď vrátila ok, použijeme ji
-      if (response.ok) {
-        const data = await handleResponse<string[]>(response);
-        if (Array.isArray(data) && data.length > 0) {
-          return data;
-        }
-      }
-      
-      // Fallback - pokud selže API nebo vrátí prázdné pole
-      console.warn('⚠️ Použití fallback dat pro výrobce');
-      return FALLBACK_MANUFACTURERS;
-    } catch (error: any) {
-      if (DEBUG) console.error('❌ Chyba načítání výrobců:', error);
-      console.warn('⚠️ Použití fallback dat pro výrobce po chybě');
-      return FALLBACK_MANUFACTURERS;
-    }
-  },
-  
-  // Import produktů ze XML ceníku
-  importXmlCenik: async (xmlData: string): Promise<ImportResponse> => {
-    logApiCall('products/import/cenik', 'POST');
-    try {
-      // Nejprve zkusíme diagnostiku
-      try {
-        await fetch(`${API_URL}/products/import/cenik`, {
-          method: 'GET',
-          headers: {
-            'Accept': 'application/json',
-            ...getAuthHeader()
-          }
-        });
-      } catch (e) {
-        console.log("🔍 Import cenik diagnostics failed", e);
-      }
-      
-      // Normální požadavek
-      const response = await fetch(`${API_URL}/products/import/cenik`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          ...getAuthHeader()
-        },
-        body: JSON.stringify({ xml: xmlData })
-      });
-      
-      return handleResponse<ImportResponse>(response);
-    } catch (error: any) {
-      if (DEBUG) console.error('❌ Chyba importu XML ceníku:', error);
-      
-      // Fallback response - simulace úspěšného importu
-      return {
-        message: 'Import simulován (kvůli chybě API)',
-        count: 5
-      };
-    }
-  },
-  
-  // Import produktů ze XML popisků
-  importXmlPopisky: async (xmlData: string): Promise<ImportResponse> => {
-    logApiCall('products/import/popisky', 'POST');
-    try {
-      const response = await fetch(`${API_URL}/products/import/popisky`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          ...getAuthHeader()
-        },
-        body: JSON.stringify({ xml: xmlData })
-      });
-      
-      return handleResponse<ImportResponse>(response);
-    } catch (error: any) {
-      if (DEBUG) console.error('❌ Chyba importu XML popisků:', error);
-      
-      // Fallback response - simulace úspěšného importu
-      return {
-        message: 'Import simulován (kvůli chybě API)',
-        count: 5
-      };
-    }
-  },
-  
-  // Import produktů z Excel souboru
-  importExcel: async (file: File): Promise<ImportResponse> => {
-    logApiCall('products/import/excel', 'POST');
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
-      
-      const response = await fetch(`${API_URL}/products/import/excel`, {
-        method: 'POST',
-        headers: {
-          'Accept': 'application/json',
-          ...getAuthHeader()
-        },
-        body: formData
-      });
-      
-      return handleResponse<ImportResponse>(response);
-    } catch (error: any) {
-      if (DEBUG) console.error('❌ Chyba importu Excel souboru:', error);
-      
-      // Fallback response - simulace úspěšného importu
-      return {
-        message: 'Import simulován (kvůli chybě API)',
-        count: 5,
-        filename: file.name
-      };
-    }
-  },
-  
-  // Ruční sloučení dat produktů
-  mergeProductData: async (): Promise<{ message: string, count: number }> => {
-    logApiCall('products/merge', 'POST');
-    try {
-      const response = await fetch(`${API_URL}/products/merge`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          ...getAuthHeader()
-        }
-      });
-      
-      return handleResponse<{ message: string, count: number }>(response);
-    } catch (error: any) {
-      if (DEBUG) console.error('❌ Chyba slučování dat produktů:', error);
-      
-      // Fallback response
-      return {
-        message: 'Sloučení simulováno (kvůli chybě API)',
-        count: 10
-      };
-    }
-  },
-  
-  // Získání historie importů produktů
-  getProductImportHistory: async (): Promise<any> => {
-    logApiCall('products/import-history', 'GET');
-    try {
-      const response = await fetch(`${API_URL}/products/import-history`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          ...getAuthHeader()
-        }
-      });
-      
-      return handleResponse(response);
-    } catch (error: any) {
-      if (DEBUG) console.error('❌ Chyba načítání historie importů:', error);
-      
-      // Fallback response
-      return { 
-        import_history: [] 
-      };
-    }
-  },
-  
-  // Diagnostický endpoint pro KV Test
-  testKVStorage: async (): Promise<any> => {
-    logApiCall('products/kv-test', 'GET');
-    try {
-      const response = await fetch(`${API_URL}/products/kv-test`, {
-        method: 'GET',
-        headers: {
-          'Accept': 'application/json',
-          ...getAuthHeader()
-        }
-      });
-      
-      return handleResponse(response);
-    } catch (error: any) {
-      if (DEBUG) console.error('❌ Chyba KV testu:', error);
+    } catch (error) {
+      logError('Error loading products:', error);
       throw error;
     }
   },
   
-  // Původní metody pro kompatibilitu
-  createProduct: async (product: Omit<Product, 'id'>): Promise<Product> => {
-    logApiCall('products', 'POST');
+  getProduct: (id: string): Promise<Product> => {
+    return fetchApi<Product>(`/products/${id}`);
+  },
+  
+  // Kategorie s fallbackem
+  getProductCategories: async (): Promise<string[]> => {
     try {
-      const response = await fetch(`${API_URL}/products`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          ...getAuthHeader()
-        },
-        body: JSON.stringify(product)
-      });
-      
-      return handleResponse<Product>(response);
-    } catch (error: any) {
-      if (DEBUG) console.error('❌ Chyba vytváření produktu:', error);
-      throw new Error(error.message || 'Chyba při vytváření produktu');
+      const categories = await fetchApi<string[]>('/products/categories');
+      if (Array.isArray(categories) && categories.length > 0) {
+        return categories;
+      }
+      logDebug('Using fallback categories (empty response)');
+      return FALLBACK.CATEGORIES;
+    } catch (error) {
+      logError('Error loading categories:', error);
+      logDebug('Using fallback categories after error');
+      return FALLBACK.CATEGORIES;
     }
+  },
+  
+  // Výrobci s fallbackem
+  getProductManufacturers: async (): Promise<string[]> => {
+    try {
+      const manufacturers = await fetchApi<string[]>('/products/manufacturers');
+      if (Array.isArray(manufacturers) && manufacturers.length > 0) {
+        return manufacturers;
+      }
+      logDebug('Using fallback manufacturers (empty response)');
+      return FALLBACK.MANUFACTURERS;
+    } catch (error) {
+      logError('Error loading manufacturers:', error);
+      logDebug('Using fallback manufacturers after error');
+      return FALLBACK.MANUFACTURERS;
+    }
+  },
+  
+  // Import produktů
+  importXmlCenik: (xmlData: string): Promise<ImportResponse> => {
+    return fetchApi<ImportResponse>('/products/import/cenik', 'POST', { xml: xmlData });
+  },
+  
+  importXmlPopisky: (xmlData: string): Promise<ImportResponse> => {
+    return fetchApi<ImportResponse>('/products/import/popisky', 'POST', { xml: xmlData });
+  },
+  
+  importExcel: (file: File): Promise<ImportResponse> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return fetchApi<ImportResponse>('/products/import/excel', 'POST', formData, {}, true);
+  },
+  
+  mergeProductData: (): Promise<{ message: string, count: number }> => {
+    return fetchApi<{ message: string, count: number }>('/products/merge', 'POST');
+  },
+  
+  getProductImportHistory: (): Promise<any> => {
+    return fetchApi('/products/import-history');
+  },
+  
+  // Diagnostika
+  testKVStorage: (): Promise<any> => {
+    return fetchApi('/products/kv-test');
+  },
+  
+  // Produkty CRUD
+  createProduct: (product: Omit<Product, 'id'>): Promise<Product> => {
+    return fetchApi<Product>('/products', 'POST', product);
+  },
+  
+  updateProduct: (id: string, product: Partial<Product>): Promise<Product> => {
+    return fetchApi<Product>(`/products/${id}`, 'PUT', product);
+  },
+  
+  deleteProduct: (id: string): Promise<void> => {
+    return fetchApi<void>(`/products/${id}`, 'DELETE');
   },
   
   // Nabídky
-  getOffers: async (): Promise<Offer[]> => {
-    logApiCall('offers', 'GET');
-    try {
-      const response = await fetch(`${API_URL}/offers`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          ...getAuthHeader()
-        }
-      });
-      
-      return handleResponse<Offer[]>(response);
-    } catch (error: any) {
-      if (DEBUG) console.error('❌ Chyba načítání nabídek:', error);
-      throw new Error(error.message || 'Chyba při načítání nabídek');
-    }
+  getOffers: (): Promise<Offer[]> => {
+    return fetchApi<Offer[]>('/offers');
   },
   
-  getOffer: async (id: string): Promise<Offer> => {
-    logApiCall(`offers/${id}`, 'GET');
-    try {
-      const response = await fetch(`${API_URL}/offers/${id}`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          ...getAuthHeader()
-        }
-      });
-      
-      return handleResponse<Offer>(response);
-    } catch (error: any) {
-      if (DEBUG) console.error(`❌ Chyba načítání nabídky ${id}:`, error);
-      throw new Error(error.message || 'Chyba při načítání nabídky');
-    }
+  getOffer: (id: string): Promise<Offer> => {
+    return fetchApi<Offer>(`/offers/${id}`);
   },
   
-  createOffer: async (offer: Omit<Offer, 'id' | 'cislo' | 'datum_vytvoreni'>): Promise<Offer> => {
-    logApiCall('offers', 'POST');
-    try {
-      const response = await fetch(`${API_URL}/offers`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          ...getAuthHeader()
-        },
-        body: JSON.stringify(offer)
-      });
-      
-      return handleResponse<Offer>(response);
-    } catch (error: any) {
-      if (DEBUG) console.error('❌ Chyba vytváření nabídky:', error);
-      throw new Error(error.message || 'Chyba při vytváření nabídky');
-    }
+  createOffer: (offer: Omit<Offer, 'id' | 'cislo' | 'datum_vytvoreni'>): Promise<Offer> => {
+    return fetchApi<Offer>('/offers', 'POST', offer);
   },
   
-  updateOffer: async (id: string, offer: Partial<Offer>): Promise<Offer> => {
-    logApiCall(`offers/${id}`, 'PUT');
-    try {
-      const response = await fetch(`${API_URL}/offers/${id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          ...getAuthHeader()
-        },
-        body: JSON.stringify(offer)
-      });
-      
-      return handleResponse<Offer>(response);
-    } catch (error: any) {
-      if (DEBUG) console.error(`❌ Chyba aktualizace nabídky ${id}:`, error);
-      throw new Error(error.message || 'Chyba při aktualizaci nabídky');
-    }
+  updateOffer: (id: string, offer: Partial<Offer>): Promise<Offer> => {
+    return fetchApi<Offer>(`/offers/${id}`, 'PUT', offer);
   },
   
-  deleteOffer: async (id: string): Promise<void> => {
-    logApiCall(`offers/${id}`, 'DELETE');
-    try {
-      const response = await fetch(`${API_URL}/offers/${id}`, {
-        method: 'DELETE',
-        headers: {
-          'Accept': 'application/json',
-          ...getAuthHeader()
-        }
-      });
-      
-      await handleResponse(response);
-    } catch (error: any) {
-      if (DEBUG) console.error(`❌ Chyba mazání nabídky ${id}:`, error);
-      throw new Error(error.message || 'Chyba při mazání nabídky');
-    }
+  deleteOffer: (id: string): Promise<void> => {
+    return fetchApi<void>(`/offers/${id}`, 'DELETE');
   },
   
   // AI asistence
-  getAiSuggestion: async (query: string, context: any): Promise<any> => {
-    logApiCall('ai/suggest', 'POST');
-    try {
-      const response = await fetch(`${API_URL}/ai/suggest`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          ...getAuthHeader()
-        },
-        body: JSON.stringify({ query, context })
-      });
-      
-      return handleResponse(response);
-    } catch (error: any) {
-      if (DEBUG) console.error('❌ Chyba AI asistence:', error);
-      throw new Error(error.message || 'Chyba při získávání AI asistence');
-    }
+  getAiSuggestion: (query: string, context: any): Promise<any> => {
+    return fetchApi<any>('/ai/suggest', 'POST', { query, context });
   },
   
-  // Původní metoda pro import - zachována pro zpětnou kompatibilitu
-  importProducts: async (xmlData: string): Promise<{ message: string, count: number }> => {
-    logApiCall('products/import', 'POST');
-    try {
-      const response = await fetch(`${API_URL}/products/import`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          ...getAuthHeader()
-        },
-        body: JSON.stringify({ xml: xmlData })
-      });
-      
-      return handleResponse<{ message: string, count: number }>(response);
-    } catch (error: any) {
-      if (DEBUG) console.error('❌ Chyba importu produktů:', error);
-      
-      // Fallback response
-      return {
-        message: 'Import simulován (kvůli chybě API)',
-        count: 5
-      };
-    }
+  // Zpětná kompatibilita
+  importProducts: (xmlData: string): Promise<{ message: string, count: number }> => {
+    return fetchApi<{ message: string, count: number }>('/products/import', 'POST', { xml: xmlData });
   }
 };
