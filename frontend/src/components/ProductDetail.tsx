@@ -1,25 +1,16 @@
 // frontend/src/components/ProductDetail.tsx
 import { useState, useEffect } from 'react';
 import { api, Product } from '../services/api';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../components/ui/tooltip';
-import { Button } from '../components/ui/button';
-import { Badge } from '../components/ui/badge';
-import { Share, Heart, ShoppingCart, Info, Package, BarChart4, FileText, ExternalLink, Edit } from '../components/Icons';
 
 interface ProductDetailProps {
   productId: string;
   onClose: () => void;
-  onAddToOffer?: (product: Product, quantity: number) => void;
 }
 
-export function ProductDetail({ productId, onClose, onAddToOffer }: ProductDetailProps) {
+export function ProductDetail({ productId, onClose }: ProductDetailProps) {
   const [product, setProduct] = useState<Product | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
-  const [quantity, setQuantity] = useState(1);
-  const [activeTab, setActiveTab] = useState('description');
-  const [relatedProducts, setRelatedProducts] = useState<Product[]>([]);
   
   // Načtení detailu produktu
   useEffect(() => {
@@ -30,21 +21,6 @@ export function ProductDetail({ productId, onClose, onAddToOffer }: ProductDetai
       try {
         const productData = await api.getProduct(productId);
         setProduct(productData);
-        
-        // Načtení souvisejících produktů (například stejná kategorie)
-        if (productData.kategorie) {
-          const related = await api.getProducts({ 
-            kategorie: productData.kategorie, 
-            limit: 4 
-          });
-          
-          // Filtrovat aktuální produkt
-          setRelatedProducts(
-            Array.isArray(related) 
-              ? related.filter(p => p.id !== productId && p.kod !== productId).slice(0, 4)
-              : related.products?.filter(p => p.id !== productId && p.kod !== productId).slice(0, 4) || []
-          );
-        }
       } catch (err: any) {
         setError(err.message || 'Chyba při načítání detailu produktu');
       } finally {
@@ -115,29 +91,12 @@ export function ProductDetail({ productId, onClose, onAddToOffer }: ProductDetai
       });
   };
   
-  // Zpracování přidání do nabídky
-  const handleAddToOffer = () => {
-    if (product && onAddToOffer) {
-      onAddToOffer(product, quantity);
-      onClose();
-    }
-  };
-  
   // Pokud načítáme data
   if (isLoading) {
     return (
-      <div className="fixed inset-0 bg-black/50 z-50 flex justify-center items-center p-4 overflow-auto">
-        <div className="bg-white rounded-lg shadow-2xl w-full max-w-3xl">
-          <div className="flex justify-between items-center border-b px-6 py-4">
-            <h2 className="text-xl font-semibold text-gray-900">Detail produktu</h2>
-            <button 
-              onClick={onClose}
-              className="text-gray-400 hover:text-gray-500"
-            >
-              &times;
-            </button>
-          </div>
-          <div className="flex justify-center items-center h-64">
+      <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex justify-center items-center">
+        <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl p-6">
+          <div className="flex justify-center items-center h-40">
             <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-500"></div>
             <span className="ml-3">Načítání detailu produktu...</span>
           </div>
@@ -149,29 +108,17 @@ export function ProductDetail({ productId, onClose, onAddToOffer }: ProductDetai
   // Pokud nastala chyba
   if (error) {
     return (
-      <div className="fixed inset-0 bg-black/50 z-50 flex justify-center items-center p-4 overflow-auto">
-        <div className="bg-white rounded-lg shadow-2xl w-full max-w-3xl">
-          <div className="flex justify-between items-center border-b px-6 py-4">
-            <h2 className="text-xl font-semibold text-gray-900">Chyba</h2>
-            <button 
+      <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex justify-center items-center">
+        <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl p-6">
+          <div className="text-center">
+            <h3 className="text-xl font-medium text-red-600 mb-2">Chyba</h3>
+            <p className="text-gray-700 mb-6">{error}</p>
+            <button
               onClick={onClose}
-              className="text-gray-400 hover:text-gray-500"
+              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
             >
-              &times;
+              Zavřít
             </button>
-          </div>
-          <div className="p-6">
-            <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-md mb-4">
-              {error}
-            </div>
-            <div className="flex justify-end">
-              <button
-                onClick={onClose}
-                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300"
-              >
-                Zavřít
-              </button>
-            </div>
           </div>
         </div>
       </div>
@@ -181,19 +128,11 @@ export function ProductDetail({ productId, onClose, onAddToOffer }: ProductDetai
   // Pokud nemáme produkt
   if (!product) {
     return (
-      <div className="fixed inset-0 bg-black/50 z-50 flex justify-center items-center p-4 overflow-auto">
-        <div className="bg-white rounded-lg shadow-2xl w-full max-w-3xl">
-          <div className="flex justify-between items-center border-b px-6 py-4">
-            <h2 className="text-xl font-semibold text-gray-900">Produkt nenalezen</h2>
-            <button 
-              onClick={onClose}
-              className="text-gray-400 hover:text-gray-500"
-            >
-              &times;
-            </button>
-          </div>
-          <div className="p-6 text-center">
-            <p className="mb-4">Požadovaný produkt nebyl nalezen nebo není dostupný.</p>
+      <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex justify-center items-center">
+        <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl p-6">
+          <div className="text-center">
+            <h3 className="text-xl font-medium text-gray-800 mb-2">Produkt nenalezen</h3>
+            <p className="text-gray-700 mb-6">Požadovaný produkt nebyl nalezen nebo není dostupný.</p>
             <button
               onClick={onClose}
               className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
@@ -212,13 +151,13 @@ export function ProductDetail({ productId, onClose, onAddToOffer }: ProductDetai
   
   // Rendering detailu produktu
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex justify-center items-center p-4 overflow-auto">
-      <div className="bg-white rounded-lg shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col">
-        <div className="flex justify-between items-center border-b px-6 py-4">
-          <h2 className="text-xl font-semibold text-gray-900 truncate pr-4" title={product.nazev}>
+    <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex justify-center items-center p-4 overflow-y-auto">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl my-8">
+        <div className="px-6 py-4 border-b flex justify-between items-center">
+          <h3 className="text-xl font-medium text-gray-900 truncate pr-4" title={product.nazev}>
             {product.nazev}
-          </h2>
-          <button 
+          </h3>
+          <button
             onClick={onClose}
             className="text-gray-400 hover:text-gray-500 text-xl"
           >
@@ -226,133 +165,48 @@ export function ProductDetail({ productId, onClose, onAddToOffer }: ProductDetai
           </button>
         </div>
         
-        {/* Obsah modálního okna */}
-        <div className="overflow-y-auto p-6 flex-grow">
-          <div className="grid grid-cols-1 md:grid-cols-7 gap-8">
+        <div className="px-6 py-4 max-h-[calc(100vh-200px)] overflow-y-auto">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             {/* Levá strana - obrázek */}
-            <div className="md:col-span-3">
+            <div className="md:col-span-1">
               {product.obrazek ? (
-                <div className="bg-gray-100 rounded-lg p-4">
-                  <div className="aspect-square flex items-center justify-center overflow-hidden rounded-md">
-                    <img 
-                      src={product.obrazek} 
-                      alt={product.nazev} 
-                      className="object-contain w-full h-full"
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).src = 'https://via.placeholder.com/300x300?text=No+Image';
-                      }}
-                    />
-                  </div>
-                </div>
+                <img 
+                  src={product.obrazek} 
+                  alt={product.nazev} 
+                  className="w-full rounded-lg shadow-md"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).src = 'https://via.placeholder.com/300x300?text=No+Image';
+                  }}
+                />
               ) : (
-                <div className="aspect-square bg-gray-200 rounded-lg flex items-center justify-center">
+                <div className="w-full h-72 bg-gray-200 rounded-lg flex items-center justify-center">
                   <span className="text-gray-500">Obrázek není k dispozici</span>
                 </div>
               )}
               
-              {/* Akce pro obrázek */}
-              <div className="mt-4 flex justify-around">
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-full">
-                        <Share className="h-5 w-5" />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p>Sdílet produkt</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-                
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-full">
-                        <Heart className="h-5 w-5" />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p>Přidat do oblíbených</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-                
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button className="p-2 text-gray-500 hover:text-green-600 hover:bg-green-50 rounded-full">
-                        <ShoppingCart className="h-5 w-5" />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p>Přidat do košíku</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-                
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button className="p-2 text-gray-500 hover:text-purple-600 hover:bg-purple-50 rounded-full">
-                        <Info className="h-5 w-5" />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p>Více informací</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </div>
-              
               {/* Zdrojová data a kódy */}
               <div className="mt-4 text-sm text-gray-500 border-t pt-3">
-                <div className="flex justify-between items-center">
-                  <span className="font-medium">Kód produktu:</span>
-                  <span className="font-mono">{product.kod}</span>
-                </div>
-                
-                {product.ean && (
-                  <div className="flex justify-between items-center mt-1">
-                    <span className="font-medium">EAN:</span>
-                    <span className="font-mono">{product.ean}</span>
-                  </div>
-                )}
-                
+                <p><span className="font-medium">Kód produktu:</span> {product.kod}</p>
+                {product.ean && <p><span className="font-medium">EAN:</span> {product.ean}</p>}
                 {product.merged_sources && (
-                  <div className="flex justify-between items-center mt-1">
-                    <span className="font-medium">Zdroje dat:</span>
-                    <div className="flex flex-wrap gap-1 justify-end">
-                      {product.merged_sources.map((source, index) => (
-                        <span key={index} className="px-1.5 py-0.5 bg-gray-100 rounded text-xs">
-                          {source}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
+                  <p><span className="font-medium">Zdroje dat:</span> {product.merged_sources.join(', ')}</p>
                 )}
               </div>
             </div>
             
             {/* Pravá strana - informace */}
-            <div className="md:col-span-4">
-              {/* Základní informace - cena, dostupnost */}
+            <div className="md:col-span-2">
+              {/* Základní informace */}
               <div className="mb-6">
-                <div className="flex justify-between items-start mb-4">
-                  <div>
-                    <h3 className="text-2xl font-bold text-gray-900">
-                      {formatCurrency(product.cena_s_dph)} Kč s DPH
-                    </h3>
-                    <p className="text-sm text-gray-600">
-                      {formatCurrency(product.cena_bez_dph)} Kč bez DPH
-                    </p>
-                  </div>
-                  <span className={`px-3 py-1 rounded-full text-sm font-medium ${getAvailabilityColor(product.dostupnost)}`}>
+                <div className="flex justify-between items-start mb-2">
+                  <h4 className="text-2xl font-semibold">{formatCurrency(product.cena_s_dph)} Kč</h4>
+                  <span className={`px-3 py-1 rounded-full text-xs font-medium ${getAvailabilityColor(product.dostupnost)}`}>
                     {formatAvailability(product.dostupnost)}
                   </span>
                 </div>
+                <p className="text-gray-600 mb-4">{formatCurrency(product.cena_bez_dph)} Kč bez DPH</p>
                 
-                <div className="grid grid-cols-2 gap-4 mt-4">
+                <div className="grid grid-cols-2 gap-4 mb-4">
                   {product.vyrobce && (
                     <div>
                       <span className="text-sm text-gray-600">Výrobce:</span>
@@ -367,182 +221,85 @@ export function ProductDetail({ productId, onClose, onAddToOffer }: ProductDetai
                     </div>
                   )}
                 </div>
-                
-                {/* Akce - přidat do nabídky */}
-                <div className="mt-6 p-4 rounded-lg border bg-gray-50">
-                  <div className="flex items-center mb-3">
-                    <span className="text-sm text-gray-700 mr-4">Množství:</span>
-                    <div className="flex">
-                      <button 
-                        onClick={() => setQuantity(Math.max(1, quantity - 1))}
-                        className="px-3 py-1 border border-r-0 border-gray-300 rounded-l-md bg-white"
-                      >
-                        -
-                      </button>
-                      <input 
-                        type="number" 
-                        min="1" 
-                        value={quantity} 
-                        onChange={(e) => setQuantity(Math.max(1, parseInt(e.target.value) || 0))}
-                        className="w-16 px-2 py-1 text-center border border-gray-300 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                      />
-                      <button 
-                        onClick={() => setQuantity(quantity + 1)}
-                        className="px-3 py-1 border border-l-0 border-gray-300 rounded-r-md bg-white"
-                      >
-                        +
-                      </button>
-                    </div>
-                    
-                    <div className="flex-grow text-right">
-                      <div className="text-sm text-gray-600">Celkem:</div>
-                      <div className="font-bold text-lg">
-                        {formatCurrency((product.cena_s_dph || 0) * quantity)} Kč
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <button
-                    onClick={handleAddToOffer}
-                    className="w-full py-2 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-md font-medium flex items-center justify-center"
-                  >
-                    <ShoppingCart className="mr-2 h-5 w-5" />
-                    Přidat do nabídky
-                  </button>
-                </div>
               </div>
               
-              {/* Záložky s obsahem */}
-              <Tabs defaultValue="description" value={activeTab} onValueChange={setActiveTab} className="mt-6">
-                <TabsList className="grid grid-cols-4 mb-4">
-                  <TabsTrigger value="description" className="text-sm">Popis</TabsTrigger>
-                  <TabsTrigger value="parameters" className="text-sm">Parametry</TabsTrigger>
-                  <TabsTrigger value="documents" className="text-sm">Dokumenty</TabsTrigger>
-                  <TabsTrigger value="related" className="text-sm">Související</TabsTrigger>
-                </TabsList>
-                
-                {/* Obsah záložky Popis */}
-                <TabsContent value="description" className="text-sm text-gray-700">
-                  {(product.kratky_popis || product.popis) ? (
-                    <>
-                      {product.kratky_popis && (
-                        <p className="font-medium mb-2">{product.kratky_popis}</p>
-                      )}
-                      
-                      {product.popis && (
-                        <div className="whitespace-pre-line">{product.popis}</div>
-                      )}
-                    </>
-                  ) : (
-                    <p className="text-gray-500 italic">Popis produktu není k dispozici.</p>
+              {/* Popis */}
+              {(product.kratky_popis || product.popis) && (
+                <div className="mb-6">
+                  <h4 className="text-lg font-medium text-gray-900 mb-2">Popis</h4>
+                  
+                  {product.kratky_popis && (
+                    <p className="text-gray-700 font-medium mb-2">{product.kratky_popis}</p>
                   )}
-                </TabsContent>
-                
-                {/* Obsah záložky Parametry */}
-                <TabsContent value="parameters">
-                  {parameters.length > 0 ? (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2">
+                  
+                  {product.popis && (
+                    <div className="text-gray-700 whitespace-pre-line">{product.popis}</div>
+                  )}
+                </div>
+              )}
+              
+              {/* Parametry */}
+              {parameters.length > 0 && (
+                <div className="mb-6">
+                  <h4 className="text-lg font-medium text-gray-900 mb-2">Technické parametry</h4>
+                  
+                  <div className="bg-gray-50 rounded-lg border p-4">
+                    <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2">
                       {parameters.map((param, index) => (
-                        <div key={index} className="flex flex-col border-b border-gray-100 py-1">
-                          <dt className="text-xs text-gray-600">{param.name}</dt>
+                        <div key={index} className="flex flex-col">
+                          <dt className="text-sm text-gray-600">{param.name}</dt>
                           <dd className="font-medium text-gray-900">{param.value}</dd>
                         </div>
                       ))}
-                    </div>
-                  ) : (
-                    <p className="text-gray-500 italic">Parametry produktu nejsou k dispozici.</p>
-                  )}
-                </TabsContent>
-                
-                {/* Obsah záložky Dokumenty */}
-                <TabsContent value="documents">
-                  {documents.length > 0 ? (
-                    <div className="space-y-2">
-                      {documents.map((doc, index) => (
+                    </dl>
+                  </div>
+                </div>
+              )}
+              
+              {/* Dokumenty */}
+              {documents.length > 0 && (
+                <div className="mb-4">
+                  <h4 className="text-lg font-medium text-gray-900 mb-2">Dokumenty ke stažení</h4>
+                  
+                  <div className="space-y-2">
+                    {documents.map((doc, index) => (
+                      <div key={index} className="flex items-center">
+                        <span className="text-blue-600 mr-2">
+                          {/* Místo ikony z lucide-react používáme prostý znak */}
+                          📄
+                        </span>
                         <a 
-                          key={index} 
                           href={doc.url} 
                           target="_blank" 
                           rel="noopener noreferrer"
-                          className="flex items-center p-2 hover:bg-gray-50 rounded-md group"
+                          className="text-blue-600 hover:underline"
                         >
-                          <FileText className="h-5 w-5 text-gray-500 mr-2" />
-                          <span className="flex-grow text-sm text-gray-700 group-hover:text-blue-600">
-                            {doc.type}
-                          </span>
-                          <ExternalLink className="h-4 w-4 text-gray-400 group-hover:text-blue-500" />
+                          {doc.type}
                         </a>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-gray-500 italic">Dokumenty k produktu nejsou k dispozici.</p>
-                  )}
-                </TabsContent>
-                
-                {/* Obsah záložky Související */}
-                <TabsContent value="related">
-                  {relatedProducts.length > 0 ? (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      {relatedProducts.map(related => (
-                        <div 
-                          key={related.id || related.kod} 
-                          className="flex border rounded-md overflow-hidden hover:border-blue-300 hover:bg-blue-50 group"
-                        >
-                          <div className="w-20 h-20 bg-gray-100 flex items-center justify-center">
-                            {related.obrazek ? (
-                              <img 
-                                src={related.obrazek} 
-                                alt={related.nazev} 
-                                className="object-contain max-w-full max-h-full"
-                                onError={(e) => {
-                                  (e.target as HTMLImageElement).src = 'https://via.placeholder.com/80x80?text=No+Image';
-                                }}
-                              />
-                            ) : (
-                              <Package className="h-8 w-8 text-gray-400" />
-                            )}
-                          </div>
-                          <div className="p-2 flex-grow">
-                            <h4 className="text-sm font-medium truncate" title={related.nazev}>
-                              {related.nazev}
-                            </h4>
-                            <div className="flex justify-between items-end mt-1">
-                              <span className="text-sm font-bold text-gray-900">
-                                {formatCurrency(related.cena_s_dph)} Kč
-                              </span>
-                              <button className="text-xs text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity">
-                                Zobrazit &rarr;
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-gray-500 italic">Nebyly nalezeny žádné související produkty.</p>
-                  )}
-                </TabsContent>
-              </Tabs>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
         
-        {/* Patička modálního okna */}
-        <div className="flex justify-end items-center gap-2 border-t bg-gray-50 p-4">
-          <Button variant="outline" onClick={onClose}>
+        <div className="px-6 py-4 border-t bg-gray-50 flex justify-end space-x-3">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+          >
             Zavřít
-          </Button>
-          <Button onClick={handleAddToOffer}>
-            <ShoppingCart className="mr-2 h-4 w-4" />
+          </button>
+          <button
+            onClick={() => alert('Přidat do nabídky - funkcionalita bude implementována později')}
+            className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700"
+          >
             Přidat do nabídky
-          </Button>
+          </button>
         </div>
       </div>
     </div>
   );
 }
-
-// Soubor components/ui/tabs.tsx je součástí shadcn/ui knihovny
-// Soubor components/ui/tooltip.tsx je součástí shadcn/ui knihovny
-// Soubor components/ui/button.tsx je součástí shadcn/ui knihovny  
-// Soubor components/ui/badge.tsx je součástí shadcn/ui knihovny
