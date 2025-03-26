@@ -1,9 +1,9 @@
-// frontend/src/components/IntelekImport.tsx
-import React, { useState, useEffect } from 'react';
+// frontend/src/components/EnhancedIntelekImport.tsx
+import React, { useState, useEffect, useCallback } from 'react';
 import DS from '../components/DesignSystem';
 import { api } from '../services/api';
 
-// Rozšíření API služby o nové metody pro Intelek
+// Rozšíření API služby o metody pro Intelek
 declare module '../services/api' {
   interface ApiService {
     getIntelekXmlUrl(): Promise<{ url: string; level: string; token: string }>;
@@ -12,54 +12,60 @@ declare module '../services/api' {
   }
 }
 
-// Přidání nových metod do API
-api.getIntelekXmlUrl = async function() {
-  try {
-    const response = await fetch('/api/products/intelek/url');
-    if (!response.ok) {
-      throw new Error(`HTTP error ${response.status}`);
+// Přidání nových metod do API, pokud ještě neexistují
+if (!api.getIntelekXmlUrl) {
+  api.getIntelekXmlUrl = async function() {
+    try {
+      const response = await fetch('/api/products/intelek/url');
+      if (!response.ok) {
+        throw new Error(`HTTP error ${response.status}`);
+      }
+      return await response.json();
+    } catch (error: any) {
+      console.error('Error getting Intelek URL:', error);
+      throw new Error(`Chyba při získávání URL pro Intelek XML: ${error.message}`);
     }
-    return await response.json();
-  } catch (error: any) {
-    console.error('Error getting Intelek URL:', error);
-    throw new Error(`Chyba při získávání URL pro Intelek XML: ${error.message}`);
-  }
-};
+  };
+}
 
-api.testIntelekConnection = async function(level: string, token: string) {
-  try {
-    const response = await fetch(`/api/products/intelek/test?level=${encodeURIComponent(level)}&token=${encodeURIComponent(token)}`);
-    if (!response.ok) {
-      throw new Error(`HTTP error ${response.status}`);
+if (!api.testIntelekConnection) {
+  api.testIntelekConnection = async function(level: string, token: string) {
+    try {
+      const response = await fetch(`/api/products/intelek/test?level=${encodeURIComponent(level)}&token=${encodeURIComponent(token)}`);
+      if (!response.ok) {
+        throw new Error(`HTTP error ${response.status}`);
+      }
+      return await response.json();
+    } catch (error: any) {
+      console.error('Error testing Intelek connection:', error);
+      throw new Error(`Chyba při testování připojení k Intelek: ${error.message}`);
     }
-    return await response.json();
-  } catch (error: any) {
-    console.error('Error testing Intelek connection:', error);
-    throw new Error(`Chyba při testování připojení k Intelek: ${error.message}`);
-  }
-};
+  };
+}
 
-api.importIntelekXml = async function(options) {
-  try {
-    const response = await fetch('/api/products/intelek/import', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
-      },
-      body: JSON.stringify(options)
-    });
-    
-    if (!response.ok) {
-      throw new Error(`HTTP error ${response.status}`);
+if (!api.importIntelekXml) {
+  api.importIntelekXml = async function(options) {
+    try {
+      const response = await fetch('/api/products/intelek/import', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
+        },
+        body: JSON.stringify(options)
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error ${response.status}`);
+      }
+      
+      return await response.json();
+    } catch (error: any) {
+      console.error('Error importing Intelek XML:', error);
+      throw new Error(`Chyba při importu Intelek XML: ${error.message}`);
     }
-    
-    return await response.json();
-  } catch (error: any) {
-    console.error('Error importing Intelek XML:', error);
-    throw new Error(`Chyba při importu Intelek XML: ${error.message}`);
-  }
-};
+  };
+}
 
 interface IntelekImportProps {
   onImportComplete?: (result: any) => void;
@@ -67,7 +73,15 @@ interface IntelekImportProps {
   isModal?: boolean;
 }
 
-const IntelekImport: React.FC<IntelekImportProps> = ({ onImportComplete, onClose, isModal = false }) => {
+interface ImportState {
+  status: 'idle' | 'testing' | 'importing' | 'success' | 'error';
+  message?: string;
+  details?: any;
+  timestamp?: string;
+  count?: number;
+}
+
+const EnhancedIntelekImport: React.FC<IntelekImportProps> = ({ onImportComplete, onClose, isModal = false }) => {
   // Stav pro konfiguraci
   const [level, setLevel] = useState<string>('54003830');
   const [token, setToken] = useState<string>('PGC%2FbX15XeK%2FkGaBq7VN4A%3D%3D');
@@ -76,12 +90,10 @@ const IntelekImport: React.FC<IntelekImportProps> = ({ onImportComplete, onClose
   
   // Stav pro UI
   const [url, setUrl] = useState<string>('');
-  const [isTestingConnection, setIsTestingConnection] = useState<boolean>(false);
+  const [importState, setImportState] = useState<ImportState>({ status: 'idle' });
   const [testResult, setTestResult] = useState<any>(null);
-  const [isImporting, setIsImporting] = useState<boolean>(false);
-  const [importResult, setImportResult] = useState<any>(null);
-  const [error, setError] = useState<string>('');
   const [isAdvancedMode, setIsAdvancedMode] = useState<boolean>(false);
+  const [xmlPreview, setXmlPreview] = useState<string>('');
   
   // Načtení výchozí konfigurace
   useEffect(() => {
@@ -91,41 +103,66 @@ const IntelekImport: React.FC<IntelekImportProps> = ({ onImportComplete, onClose
   // Načtení výchozí konfigurace z API
   const loadDefaultConfig = async () => {
     try {
+      setImportState({ status: 'idle', message: 'Načítání konfigurace...' });
       const config = await api.getIntelekXmlUrl();
       setLevel(config.level);
       setToken(config.token);
       setUrl(config.url);
+      setImportState({ status: 'idle' });
     } catch (err: any) {
-      setError(`Chyba při načítání konfigurace: ${err.message}`);
+      setImportState({ 
+        status: 'error', 
+        message: `Chyba při načítání konfigurace: ${err.message}` 
+      });
     }
   };
   
+  // Generování URL pro import na základě parametrů
+  const generateUrl = useCallback(() => {
+    return `https://www.intelek.cz/export_cena.jsp?level=${encodeURIComponent(level)}&xml=true&x=${encodeURIComponent(token)}`;
+  }, [level, token]);
+  
+  // Aktualizace URL při změně parametrů
+  useEffect(() => {
+    setUrl(generateUrl());
+  }, [level, token, generateUrl]);
+  
   // Testování připojení k Intelek.cz
   const handleTestConnection = async () => {
-    setIsTestingConnection(true);
+    setImportState({ status: 'testing', message: 'Testování připojení...' });
     setTestResult(null);
-    setError('');
     
     try {
       const result = await api.testIntelekConnection(level, token);
       setTestResult(result);
       
-      if (!result.success) {
-        setError(`Test připojení selhal: ${result.error}`);
+      if (result.success) {
+        setImportState({ 
+          status: 'idle', 
+          message: 'Test připojení byl úspěšný'
+        });
+        
+        // Pokud je k dispozici náhled XML, uložíme jej
+        if (result.preview) {
+          setXmlPreview(result.preview);
+        }
+      } else {
+        setImportState({ 
+          status: 'error', 
+          message: `Test připojení selhal: ${result.error || 'Neznámá chyba'}` 
+        });
       }
     } catch (err: any) {
-      setError(`Chyba při testování připojení: ${err.message}`);
-      setTestResult({ success: false });
-    } finally {
-      setIsTestingConnection(false);
+      setImportState({ 
+        status: 'error', 
+        message: `Chyba při testování připojení: ${err.message}` 
+      });
     }
   };
   
   // Import produktů z Intelek XML
   const handleImport = async () => {
-    setIsImporting(true);
-    setImportResult(null);
-    setError('');
+    setImportState({ status: 'importing', message: 'Importování dat...' });
     
     try {
       let importOptions: any = {};
@@ -148,23 +185,32 @@ const IntelekImport: React.FC<IntelekImportProps> = ({ onImportComplete, onClose
       }
       
       const result = await api.importIntelekXml(importOptions);
-      setImportResult(result);
+      
+      setImportState({ 
+        status: 'success', 
+        message: result.message || 'Import byl úspěšný', 
+        count: result.count,
+        timestamp: new Date().toISOString(),
+        details: result
+      });
       
       if (onImportComplete) {
         onImportComplete(result);
       }
     } catch (err: any) {
-      setError(`Chyba při importu: ${err.message}`);
-    } finally {
-      setIsImporting(false);
+      setImportState({ 
+        status: 'error', 
+        message: `Chyba při importu: ${err.message}`,
+        timestamp: new Date().toISOString() 
+      });
     }
   };
   
   // Přepínání režimu importu
   const handleImportModeChange = (mode: 'url' | 'xml_data') => {
     setImportMode(mode);
-    setImportResult(null);
-    setError('');
+    setImportState({ status: 'idle' });
+    setTestResult(null);
   };
   
   // Formátování data a času
@@ -176,20 +222,119 @@ const IntelekImport: React.FC<IntelekImportProps> = ({ onImportComplete, onClose
     }
   };
   
+  // Komponenta pro zobrazení výsledku testu
+  const TestResultSection = () => {
+    if (!testResult) return null;
+    
+    return (
+      <div style={{ 
+        marginBottom: DS.spacing.lg,
+        padding: DS.spacing.md,
+        border: `1px solid ${testResult.success ? DS.colors.success.main : DS.colors.danger.main}`,
+        borderRadius: DS.radii.md,
+        backgroundColor: testResult.success ? DS.colors.success.light : DS.colors.danger.light
+      }}>
+        <h3 style={{ 
+          fontWeight: 'bold', 
+          marginBottom: DS.spacing.sm,
+          color: testResult.success ? DS.colors.success.hover : DS.colors.danger.hover
+        }}>
+          {testResult.success ? 'Připojení úspěšné' : 'Připojení selhalo'}
+        </h3>
+        
+        {testResult.success && testResult.isXml && (
+          <div>
+            <p style={{ marginBottom: DS.spacing.xs }}>XML data jsou k dispozici</p>
+            <p style={{ marginBottom: DS.spacing.xs }}>Velikost dat: {testResult.contentLength} bytů</p>
+            {testResult.preview && (
+              <div>
+                <p style={{ fontWeight: 'bold', marginBottom: DS.spacing.xs }}>Náhled XML:</p>
+                <pre style={{ 
+                  fontSize: DS.fontSizes.xs,
+                  padding: DS.spacing.sm,
+                  backgroundColor: 'rgba(255, 255, 255, 0.5)',
+                  borderRadius: DS.radii.sm,
+                  overflowX: 'auto'
+                }}>
+                  {testResult.preview}
+                </pre>
+              </div>
+            )}
+          </div>
+        )}
+        
+        {!testResult.success && testResult.error && (
+          <p style={{ color: DS.colors.danger.hover }}>
+            Důvod: {testResult.error}
+          </p>
+        )}
+      </div>
+    );
+  };
+  
+  // Komponenta pro zobrazení stavu importu
+  const ImportStatusSection = () => {
+    if (importState.status === 'idle' && !importState.message) return null;
+    
+    let statusColor = DS.colors.info;
+    let icon = '🔄';
+    
+    switch(importState.status) {
+      case 'success':
+        statusColor = DS.colors.success;
+        icon = '✅';
+        break;
+      case 'error':
+        statusColor = DS.colors.danger;
+        icon = '❌';
+        break;
+      case 'testing':
+        statusColor = DS.colors.info;
+        icon = '🔍';
+        break;
+      case 'importing':
+        statusColor = DS.colors.primary;
+        icon = '📥';
+        break;
+    }
+    
+    return (
+      <div style={{ 
+        padding: DS.spacing.md,
+        marginBottom: DS.spacing.md,
+        backgroundColor: statusColor.light,
+        borderRadius: DS.radii.md,
+        border: `1px solid ${statusColor.main}`
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', marginBottom: importState.count ? DS.spacing.sm : 0 }}>
+          <span style={{ marginRight: DS.spacing.sm, fontSize: '1.2em' }}>{icon}</span>
+          <span style={{ color: statusColor.hover, fontWeight: 'medium' }}>
+            {importState.message}
+          </span>
+        </div>
+        
+        {importState.count && (
+          <div style={{ 
+            display: 'flex', 
+            justifyContent: 'space-between',
+            fontSize: DS.fontSizes.sm,
+            color: statusColor.hover
+          }}>
+            <span>Počet importovaných produktů: <strong>{importState.count}</strong></span>
+            {importState.timestamp && (
+              <span>{formatDateTime(importState.timestamp)}</span>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+  
   // Komponenta pro zobrazení obsahu
   const IntelekImportContent = () => (
     <>
-      {error && (
-        <DS.StatusMessage type="error" style={{ marginBottom: DS.spacing.md }}>
-          {error}
-        </DS.StatusMessage>
-      )}
-      
-      {importResult && importResult.message && (
-        <DS.StatusMessage type="success" style={{ marginBottom: DS.spacing.md }}>
-          {importResult.message} - Celkem importováno: {importResult.count} produktů
-        </DS.StatusMessage>
-      )}
+      {/* Zobrazení stavu importu */}
+      <ImportStatusSection />
       
       <DS.Card title="Import produktů z Intelek.cz">
         {/* Přepínač režimu importu */}
@@ -265,7 +410,7 @@ const IntelekImport: React.FC<IntelekImportProps> = ({ onImportComplete, onClose
                   borderRadius: DS.radii.md,
                   minHeight: '200px'
                 }}
-                disabled={isImporting}
+                disabled={importState.status === 'importing'}
               />
             </div>
           )}
@@ -283,101 +428,58 @@ const IntelekImport: React.FC<IntelekImportProps> = ({ onImportComplete, onClose
                   overflowX: 'auto',
                   fontSize: DS.fontSizes.sm
                 }}>
-                  {url || `https://www.intelek.cz/export_cena.jsp?level=${level}&xml=true&x=${token}`}
+                  {url || generateUrl()}
                 </div>
               </div>
               
-              <div style={{ display: 'flex', gap: DS.spacing.md, marginBottom: DS.spacing.xl }}>
+              <div style={{ display: 'flex', gap: DS.spacing.md, marginBottom: DS.spacing.md }}>
                 <DS.Button
                   variant="outline"
                   onClick={handleTestConnection}
-                  disabled={isTestingConnection}
+                  disabled={importState.status === 'testing' || importState.status === 'importing'}
                 >
-                  {isTestingConnection ? 'Testování...' : 'Otestovat připojení'}
+                  {importState.status === 'testing' ? 'Testování...' : 'Otestovat připojení'}
                 </DS.Button>
                 
                 <DS.Button
                   variant="primary"
                   onClick={handleImport}
-                  disabled={isImporting}
+                  disabled={importState.status === 'importing'}
                 >
-                  {isImporting ? 'Importování...' : 'Spustit import'}
+                  {importState.status === 'importing' ? 'Importování...' : 'Spustit import'}
                 </DS.Button>
               </div>
               
               {/* Výsledek testu připojení */}
-              {testResult && (
-                <div style={{ 
-                  marginBottom: DS.spacing.lg,
-                  padding: DS.spacing.md,
-                  border: `1px solid ${testResult.success ? DS.colors.success.main : DS.colors.danger.main}`,
-                  borderRadius: DS.radii.md,
-                  backgroundColor: testResult.success ? DS.colors.success.light : DS.colors.danger.light
-                }}>
-                  <h3 style={{ 
-                    fontWeight: 'bold', 
-                    marginBottom: DS.spacing.sm,
-                    color: testResult.success ? DS.colors.success.hover : DS.colors.danger.hover
-                  }}>
-                    {testResult.success ? 'Připojení úspěšné' : 'Připojení selhalo'}
-                  </h3>
-                  
-                  {testResult.success && testResult.isXml && (
-                    <div>
-                      <p style={{ marginBottom: DS.spacing.xs }}>XML data jsou k dispozici</p>
-                      <p style={{ marginBottom: DS.spacing.xs }}>Velikost dat: {testResult.contentLength} bytů</p>
-                      {testResult.preview && (
-                        <div>
-                          <p style={{ fontWeight: 'bold', marginBottom: DS.spacing.xs }}>Náhled:</p>
-                          <pre style={{ 
-                            fontSize: DS.fontSizes.xs,
-                            padding: DS.spacing.sm,
-                            backgroundColor: 'rgba(255, 255, 255, 0.5)',
-                            borderRadius: DS.radii.sm,
-                            overflowX: 'auto'
-                          }}>
-                            {testResult.preview}
-                          </pre>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  
-                  {!testResult.success && testResult.error && (
-                    <p style={{ color: DS.colors.danger.hover }}>
-                      Důvod: {testResult.error}
-                    </p>
-                  )}
-                </div>
-              )}
+              <TestResultSection />
             </div>
           )}
         </div>
       </DS.Card>
       
-      {/* Výsledek importu */}
-      {importResult && (
+      {/* Úspěšný import - statistiky */}
+      {importState.status === 'success' && importState.details && (
         <DS.Card title="Výsledek importu" style={{ marginTop: DS.spacing.lg }}>
           <div style={{ marginBottom: DS.spacing.md }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: DS.spacing.xs }}>
               <span style={{ fontWeight: 'bold' }}>Stav:</span>
-              <span>{importResult.error ? 'Chyba' : 'Úspěch'}</span>
+              <span>Úspěch</span>
             </div>
             
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: DS.spacing.xs }}>
               <span style={{ fontWeight: 'bold' }}>Počet importovaných produktů:</span>
-              <span>{importResult.count || 0}</span>
+              <span>{importState.count || 0}</span>
             </div>
             
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: DS.spacing.xs }}>
               <span style={{ fontWeight: 'bold' }}>Zdroj:</span>
-              <span>{importResult.source || 'intelek_xml'}</span>
+              <span>{importState.details.source || 'intelek_xml'}</span>
             </div>
             
-            {importResult.timestamp && (
+            {importState.timestamp && (
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: DS.spacing.xs }}>
                 <span style={{ fontWeight: 'bold' }}>Čas importu:</span>
-                <span>{formatDateTime(importResult.timestamp)}</span>
+                <span>{formatDateTime(importState.timestamp)}</span>
               </div>
             )}
           </div>
@@ -386,7 +488,7 @@ const IntelekImport: React.FC<IntelekImportProps> = ({ onImportComplete, onClose
             <DS.Button
               variant="primary"
               onClick={handleImport}
-              disabled={isImporting}
+              disabled={importState.status === 'importing'}
             >
               Importovat znovu
             </DS.Button>
@@ -436,4 +538,4 @@ const IntelekImport: React.FC<IntelekImportProps> = ({ onImportComplete, onClose
   );
 };
 
-export default IntelekImport;
+export default EnhancedIntelekImport;
