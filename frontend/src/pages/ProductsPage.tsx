@@ -2,6 +2,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { api, Product, ProductFilterOptions } from '../services/api';
 import { ProductDetail } from '../components/ProductDetail';
+import EnhancedIntelekImport from '../components/EnhancedIntelekImport';
 import DS from '../components/DesignSystem';
 
 // Typy zobrazení seznamu produktů
@@ -27,6 +28,7 @@ export function ProductsPage() {
   const [isXmlCenikModalOpen, setIsXmlCenikModalOpen] = useState(false);
   const [isXmlPopiskyModalOpen, setIsXmlPopiskyModalOpen] = useState(false);
   const [isExcelModalOpen, setIsExcelModalOpen] = useState(false);
+  const [isIntelekModalOpen, setIsIntelekModalOpen] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
   
   // Data pro import
@@ -207,6 +209,19 @@ export function ProductsPage() {
     }
   };
   
+  // Handler pro dokončení importu z Intelek
+  const handleIntelekImportComplete = (result) => {
+    // Aktualizace přehledu produktů po importu
+    fetchProducts();
+    // Zobrazení úspěšné zprávy
+    setImportStatus(`Import z Intelek.cz dokončen: ${result.count} produktů`);
+    // Automatické zavření modalu po 2 sekundách
+    setTimeout(() => {
+      setIsIntelekModalOpen(false);
+      setImportStatus('');
+    }, 2000);
+  };
+  
   // Ruční sloučení dat produktů
   const handleMergeProductData = async () => {
     setImportStatus('Slučuji data...');
@@ -282,6 +297,7 @@ export function ProductsPage() {
       case 'xml_cenik': return 'XML Ceník';
       case 'xml_popisky': return 'XML Popisky';
       case 'excel': return 'Excel';
+      case 'intelek': return 'Intelek.cz';
       default: return type;
     }
   };
@@ -369,6 +385,26 @@ export function ProductsPage() {
               }}
             >
               Import Excel
+            </button>
+            <button
+              onClick={() => {
+                setImportModalOpen(false);
+                setIsIntelekModalOpen(true);
+              }}
+              style={{
+                width: '100%',
+                textAlign: 'left',
+                padding: `${DS.spacing.sm} ${DS.spacing.md}`,
+                border: 'none',
+                backgroundColor: 'transparent',
+                cursor: 'pointer',
+                // Zvýraznění nové položky
+                backgroundColor: DS.colors.info.light,
+                fontWeight: 'bold',
+                color: DS.colors.info.main
+              }}
+            >
+              Import z Intelek.cz
             </button>
             <hr style={{ margin: '5px 0', borderTop: `1px solid ${DS.colors.gray[200]}` }} />
             <button
@@ -1034,6 +1070,20 @@ export function ProductsPage() {
         )}
       </DS.Modal>
       
+      {/* Modal pro import z Intelek.cz */}
+      <DS.Modal
+        isOpen={isIntelekModalOpen}
+        onClose={() => setIsIntelekModalOpen(false)}
+        title="Import produktů z Intelek.cz"
+        maxWidth="900px"
+      >
+        <EnhancedIntelekImport 
+          onImportComplete={handleIntelekImportComplete}
+          onClose={() => setIsIntelekModalOpen(false)}
+          isModal={true}
+        />
+      </DS.Modal>
+      
       {/* Modal pro historii importů */}
       <DS.Modal
         isOpen={showImportHistory}
@@ -1060,169 +1110,3 @@ export function ProductsPage() {
     </DS.PageLayout>
   );
 }
-// Úprava src/pages/ProductsPage.tsx pro přidání podpory Intelek importu
-
-// Importujte EnhancedIntelekImport a další potřebné komponenty
-import EnhancedIntelekImport from '../components/EnhancedIntelekImport';
-
-// V rámci dropdown menu pro import přidejte novou položku pro Intelek
-const ImportDropdown = () => (
-  <div style={{ position: 'relative' }}>
-    <DS.Button 
-      variant="success"
-      onClick={() => setImportModalOpen(!importModalOpen)}
-    >
-      Import
-    </DS.Button>
-    
-    {importModalOpen && (
-      <div style={{
-        position: 'absolute',
-        right: 0,
-        top: '40px',
-        width: '200px',
-        backgroundColor: '#fff',
-        border: `1px solid ${DS.colors.gray[200]}`,
-        borderRadius: DS.radii.md,
-        boxShadow: DS.shadows.md,
-        zIndex: 10
-      }}>
-        <div style={{ padding: '5px 0' }}>
-          <button
-            onClick={() => {
-              setImportModalOpen(false);
-              setIsXmlCenikModalOpen(true);
-            }}
-            style={{
-              width: '100%',
-              textAlign: 'left',
-              padding: `${DS.spacing.sm} ${DS.spacing.md}`,
-              border: 'none',
-              backgroundColor: 'transparent',
-              cursor: 'pointer'
-            }}
-          >
-            Import XML ceníku
-          </button>
-          <button
-            onClick={() => {
-              setImportModalOpen(false);
-              setIsXmlPopiskyModalOpen(true);
-            }}
-            style={{
-              width: '100%',
-              textAlign: 'left',
-              padding: `${DS.spacing.sm} ${DS.spacing.md}`,
-              border: 'none',
-              backgroundColor: 'transparent',
-              cursor: 'pointer'
-            }}
-          >
-            Import XML popisků
-          </button>
-          <button
-            onClick={() => {
-              setImportModalOpen(false);
-              setIsExcelModalOpen(true);
-            }}
-            style={{
-              width: '100%',
-              textAlign: 'left',
-              padding: `${DS.spacing.sm} ${DS.spacing.md}`,
-              border: 'none',
-              backgroundColor: 'transparent',
-              cursor: 'pointer'
-            }}
-          >
-            Import Excel
-          </button>
-          <button
-            onClick={() => {
-              setImportModalOpen(false);
-              setIsIntelekModalOpen(true); // Nová proměnná stavu pro Intelek modal
-            }}
-            style={{
-              width: '100%',
-              textAlign: 'left',
-              padding: `${DS.spacing.sm} ${DS.spacing.md}`,
-              border: 'none',
-              backgroundColor: 'transparent',
-              cursor: 'pointer',
-              // Zvýraznění nové položky
-              backgroundColor: DS.colors.info.light,
-              fontWeight: 'bold',
-              color: DS.colors.info.main
-            }}
-          >
-            Import z Intelek.cz
-          </button>
-          <hr style={{ margin: '5px 0', borderTop: `1px solid ${DS.colors.gray[200]}` }} />
-          <button
-            onClick={() => {
-              setImportModalOpen(false);
-              handleMergeProductData();
-            }}
-            style={{
-              width: '100%',
-              textAlign: 'left',
-              padding: `${DS.spacing.sm} ${DS.spacing.md}`,
-              border: 'none',
-              backgroundColor: 'transparent',
-              cursor: 'pointer'
-            }}
-          >
-            Sloučit data
-          </button>
-          <button
-            onClick={() => {
-              setImportModalOpen(false);
-              fetchImportHistory();
-              setShowImportHistory(true);
-            }}
-            style={{
-              width: '100%',
-              textAlign: 'left',
-              padding: `${DS.spacing.sm} ${DS.spacing.md}`,
-              border: 'none',
-              backgroundColor: 'transparent',
-              cursor: 'pointer'
-            }}
-          >
-            Historie importů
-          </button>
-        </div>
-      </div>
-    )}
-  </div>
-);
-
-// Přidejte nový stav pro Intelek modal
-const [isIntelekModalOpen, setIsIntelekModalOpen] = useState(false);
-
-// Handler pro dokončení importu z Intelek
-const handleIntelekImportComplete = (result) => {
-  // Aktualizace přehledu produktů po importu
-  fetchProducts();
-  // Zobrazení úspěšné zprávy
-  setImportStatus(`Import z Intelek.cz dokončen: ${result.count} produktů`);
-  // Automatické zavření modalu po 2 sekundách
-  setTimeout(() => {
-    setIsIntelekModalOpen(false);
-    setImportStatus('');
-  }, 2000);
-};
-
-// Přidejte do JSX kódu nový modální dialog pro import z Intelek
-{/* Modal pro import z Intelek.cz */}
-<DS.Modal
-  isOpen={isIntelekModalOpen}
-  onClose={() => setIsIntelekModalOpen(false)}
-  title="Import produktů z Intelek.cz"
-  maxWidth="900px"
->
-  <EnhancedIntelekImport 
-    onImportComplete={handleIntelekImportComplete}
-    onClose={() => setIsIntelekModalOpen(false)}
-    isModal={true}
-  />
-</DS.Modal>
