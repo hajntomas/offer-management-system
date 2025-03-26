@@ -2,7 +2,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { api, Product, ProductFilterOptions } from '../services/api';
 import { ProductDetail } from '../components/ProductDetail';
-import EnhancedIntelekImport from '../components/EnhancedIntelekImport';
+import IntelekImport from '../components/IntelekImport';
 import DS from '../components/DesignSystem';
 
 // Typy zobrazení seznamu produktů
@@ -1077,7 +1077,7 @@ export function ProductsPage() {
         title="Import produktů z Intelek.cz"
         maxWidth="900px"
       >
-        <EnhancedIntelekImport 
+        <IntelekImport 
           onImportComplete={handleIntelekImportComplete}
           onClose={() => setIsIntelekModalOpen(false)}
           isModal={true}
