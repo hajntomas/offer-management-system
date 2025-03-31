@@ -51,6 +51,7 @@ const IntelekImport: React.FC<IntelekImportProps> = ({ onImportComplete, onClose
   const [isExpanded, setIsExpanded] = useState<boolean>(false);
   const [status, setStatus] = useState<{ type: 'info' | 'error' | 'success', message: string } | null>(null);
   const [isImporting, setIsImporting] = useState<boolean>(false);
+  const [importProgress, setImportProgress] = useState<{ current: number, total: number } | null>(null);
 
   // Efekt pro nastavení výchozí URL podle zvoleného zdroje
   useEffect(() => {
@@ -142,7 +143,155 @@ const IntelekImport: React.FC<IntelekImportProps> = ({ onImportComplete, onClose
     }
   };
 
-Handler pro import dat
+  // Handler pro import dat 
+  const handleImport = async () => {
+    setStatus({ type: 'info', message: 'Začínám import...' });
+    setIsImporting(true);
+    setImportProgress(null);
+
+    try {
+      let xmlContent = '';
+      
+      // Získání XML podle zvoleného zdroje
+      if (importType === 'url') {
+        // Získání dat z URL přes proxy
+        const response = await fetch('/api/intelek-proxy', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ url: customUrl }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`Chyba při načítání dat: ${response.status} ${response.statusText}`);
+        }
+
+        xmlContent = await response.text();
+      } else {
+        // Použití zadaných XML dat
+        if (!xmlData.trim()) {
+          setStatus({ type: 'error', message: 'Zadejte XML data' });
+          setIsImporting(false);
+          return;
+        }
+        xmlContent = xmlData;
+      }
+
+      // Zpracování XML na produkty
+      const products = parseXmlToProducts(xmlContent, importSource);
+      
+      if (products.length === 0) {
+        setStatus({ type: 'error', message: 'Nebyly nalezeny žádné produkty k importu' });
+        setIsImporting(false);
+        return;
+      }
+
+      console.log(`Zpracováno ${products.length} produktů z XML`);
+      
+      // Rozdělení produktů do dávek pro menší zatížení KV storage
+      // Optimální velikost dávky pro KV storage je cca 100-200 produktů
+      const BATCH_SIZE = 100;
+      const totalBatches = Math.ceil(products.length / BATCH_SIZE);
+      let importedCount = 0;
+      let failedBatches = 0;
+      
+      // Timestamp pro identifikaci importu
+      const importTimestamp = new Date().toISOString();
+      
+      // Dávkové zpracování
+      for (let i = 0; i < totalBatches; i++) {
+        const start = i * BATCH_SIZE;
+        const end = Math.min((i + 1) * BATCH_SIZE, products.length);
+        const batch = products.slice(start, end);
+        
+        setImportProgress({
+          current: i + 1,
+          total: totalBatches
+        });
+        
+        setStatus({ 
+          type: 'info', 
+          message: `Importuji dávku ${i + 1}/${totalBatches} (${batch.length} produktů)...` 
+        });
+        
+        try {
+          // Příprava dat pro odeslání
+          const importData = {
+            source: importSource,
+            products: batch,
+            totalCount: products.length,
+            batchNumber: i + 1,
+            batchSize: totalBatches,
+            timestamp: importTimestamp
+          };
+          
+          // Odeslání dávky na server
+          const apiMethod = importSource === 'cenik' 
+            ? api.importXmlCenik 
+            : api.importXmlPopisky;
+          
+          const response = await apiMethod(JSON.stringify(importData));
+          
+          console.log(`Dávka ${i + 1}/${totalBatches} úspěšně importována:`, response);
+          
+          // Aktualizace počítadla
+          if (response && response.count) {
+            importedCount += response.count;
+          }
+        } catch (error) {
+          console.error(`Chyba při importu dávky ${i + 1}/${totalBatches}:`, error);
+          failedBatches++;
+          
+          // Pokračujeme s další dávkou i po chybě
+        }
+        
+        // Krátké zpoždění mezi dávkami pro menší zatížení serveru
+        if (i < totalBatches - 1) {
+          await new Promise(resolve => setTimeout(resolve, 300));
+        }
+      }
+      
+      // Konečný status
+      if (failedBatches === 0) {
+        setStatus({ 
+          type: 'success', 
+          message: `Import z ${importSource === 'cenik' ? 'ceníku' : 'popisků'} dokončen: ${importedCount} produktů` 
+        });
+      } else if (failedBatches < totalBatches) {
+        setStatus({ 
+          type: 'warning', 
+          message: `Import částečně úspěšný: ${importedCount} produktů. ${failedBatches} dávek selhalo.` 
+        });
+      } else {
+        setStatus({ 
+          type: 'error', 
+          message: `Import selhal: všechny dávky měly chybu.` 
+        });
+      }
+      
+      // Volání callback funkce, pokud byla poskytnuta
+      if (onImportComplete) {
+        onImportComplete({
+          source: importSource,
+          total: products.length,
+          imported: importedCount,
+          failed: failedBatches > 0 ? true : false
+        });
+      }
+      
+    } catch (error) {
+      console.error('Chyba při importu:', error);
+      setStatus({ 
+        type: 'error', 
+        message: `Import selhal: ${error instanceof Error ? error.message : String(error)}` 
+      });
+    } finally {
+      setIsImporting(false);
+      setImportProgress(null);
+    }
+  };
+
   // Převod XML na pole produktů
   const parseXmlToProducts = (xmlContent: string, source: ImportSource) => {
     const products = [];
@@ -251,6 +400,101 @@ Handler pro import dat
     return products;
   };
 
+  // Diagnostika API koncových bodů
+  const runDiagnostics = async () => {
+    setStatus({ type: 'info', message: 'Spouštím diagnostiku...' });
+    setIsImporting(true);
+    
+    try {
+      // 1. Test proxy endpointu
+      console.log("Test 1: Kontrola proxy endpoint");
+      const proxyTest = await fetch('/api/intelek-proxy', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ url: URL_CENIK }),
+      });
+      
+      console.log(`Proxy test response status: ${proxyTest.status}`);
+      if (!proxyTest.ok) {
+        const errorText = await proxyTest.text();
+        console.log(`Proxy error: ${errorText}`);
+        throw new Error(`Proxy endpoint není funkční: ${proxyTest.status} ${proxyTest.statusText}`);
+      }
+      
+      // 2. Test importního endpointu s minimálními daty
+      console.log("Test 2: Kontrola importního endpoint");
+      const sampleProduct = {
+        kod: "TEST-PRODUKT",
+        nazev: "Testovací produkt",
+        cena_bez_dph: 100,
+        cena_s_dph: 121,
+        dostupnost: 10
+      };
+      
+      const importTest = await api.importXmlCenik(JSON.stringify({
+        source: 'test',
+        products: [sampleProduct],
+        totalCount: 1,
+        batchNumber: 1,
+        batchSize: 1,
+        timestamp: new Date().toISOString()
+      }));
+      
+      console.log("Import test response:", importTest);
+      if (!importTest || !importTest.count) {
+        throw new Error("Import endpoint není funkční nebo nevrací očekávanou odpověď");
+      }
+      
+      // 3. Test kompletního procesu s malým vzorkem dat
+      console.log("Test 3: Test kompletního procesu");
+      const sampleXmlContent = `
+      <product>
+        <kod>TEST-DIAGNOSTIKA</kod>
+        <ean>1234567890123</ean>
+        <nazev>Diagnostický produkt</nazev>
+        <vasecenabezdph>99.90</vasecenabezdph>
+        <vasecenasdph>120.88</vasecenasdph>
+        <dostupnost>5</dostupnost>
+      </product>
+      `;
+      
+      const products = parseXmlToProducts(sampleXmlContent, "cenik");
+      console.log("Parsed sample products:", products);
+      
+      if (products.length === 0) {
+        throw new Error("Parser XML nefunguje správně");
+      }
+      
+      const sampleImport = await api.importXmlCenik(JSON.stringify({
+        source: 'test',
+        products: products,
+        totalCount: 1,
+        batchNumber: 1,
+        batchSize: 1,
+        timestamp: new Date().toISOString()
+      }));
+      
+      console.log("Sample import response:", sampleImport);
+      
+      // Výsledek diagnostiky
+      setStatus({ 
+        type: 'success', 
+        message: `Diagnostika dokončena úspěšně. Všechny testy prošly.` 
+      });
+      
+    } catch (error) {
+      console.error("Diagnostika selhala:", error);
+      setStatus({ 
+        type: 'error', 
+        message: `Diagnostika selhala: ${error instanceof Error ? error.message : String(error)}` 
+      });
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
   // Renderování komponenty
   return (
     <div>
@@ -265,6 +509,32 @@ Handler pro import dat
         >
           {status.message}
         </DS.StatusMessage>
+      )}
+      
+      {importProgress && (
+        <div style={{ 
+          marginBottom: DS.spacing.md, 
+          padding: DS.spacing.sm,
+          backgroundColor: DS.colors.gray[100],
+          borderRadius: DS.radii.md,
+          textAlign: 'center'
+        }}>
+          <div>Průběh importu: {importProgress.current} z {importProgress.total} dávek</div>
+          <div style={{
+            width: '100%',
+            height: '10px',
+            backgroundColor: DS.colors.gray[300],
+            borderRadius: DS.radii.sm,
+            overflow: 'hidden',
+            marginTop: DS.spacing.xs
+          }}>
+            <div style={{
+              width: `${(importProgress.current / importProgress.total) * 100}%`,
+              height: '100%',
+              backgroundColor: DS.colors.primary.main
+            }} />
+          </div>
+        </div>
       )}
       
       <div style={{ marginBottom: DS.spacing.md, display: 'flex', justifyContent: 'center', gap: DS.spacing.md }}>
@@ -391,6 +661,15 @@ Handler pro import dat
             - Před importem doporučujeme otestovat připojení<br />
             - Pro větší množství dat použijte přímý import z XML<br />
           </p>
+          
+          <DS.Button
+            variant="outline"
+            onClick={runDiagnostics}
+            disabled={isImporting}
+            style={{ marginRight: DS.spacing.sm }}
+          >
+            Diagnostika
+          </DS.Button>
         </div>
       )}
       
@@ -425,106 +704,5 @@ Handler pro import dat
     </div>
   );
 };
-
-// Diagnostika API koncových bodů
-const runDiagnostics = async () => {
-  setStatus({ type: 'info', message: 'Spouštím diagnostiku...' });
-  
-  try {
-    // 1. Test proxy endpointu
-    console.log("Test 1: Kontrola proxy endpoint");
-    const proxyTest = await fetch('/api/intelek-proxy', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ url: URL_CENIK }),
-    });
-    
-    console.log(`Proxy test response status: ${proxyTest.status}`);
-    if (!proxyTest.ok) {
-      const errorText = await proxyTest.text();
-      console.log(`Proxy error: ${errorText}`);
-      throw new Error(`Proxy endpoint není funkční: ${proxyTest.status} ${proxyTest.statusText}`);
-    }
-    
-    // 2. Test importního endpointu s minimálními daty
-    console.log("Test 2: Kontrola importního endpoint");
-    const sampleProduct = {
-      kod: "TEST-PRODUKT",
-      nazev: "Testovací produkt",
-      cena_bez_dph: 100,
-      cena_s_dph: 121,
-      dostupnost: 10
-    };
-    
-    const importTest = await api.importXmlCenik(JSON.stringify({
-      source: 'test',
-      products: [sampleProduct],
-      totalCount: 1,
-      batchNumber: 1,
-      batchSize: 1,
-      timestamp: new Date().toISOString()
-    }));
-    
-    console.log("Import test response:", importTest);
-    if (!importTest || !importTest.count) {
-      throw new Error("Import endpoint není funkční nebo nevrací očekávanou odpověď");
-    }
-    
-    // 3. Test kompletního procesu s malým vzorkem dat
-    console.log("Test 3: Test kompletního procesu");
-    const sampleXmlContent = `
-    <product>
-      <kod>TEST-DIAGNOSTIKA</kod>
-      <ean>1234567890123</ean>
-      <nazev>Diagnostický produkt</nazev>
-      <vasecenabezdph>99.90</vasecenabezdph>
-      <vasecenasdph>120.88</vasecenasdph>
-      <dostupnost>5</dostupnost>
-    </product>
-    `;
-    
-    const products = parseXmlToProducts(sampleXmlContent, "cenik");
-    console.log("Parsed sample products:", products);
-    
-    if (products.length === 0) {
-      throw new Error("Parser XML nefunguje správně");
-    }
-    
-    const sampleImport = await api.importXmlCenik(JSON.stringify({
-      source: 'test',
-      products: products,
-      totalCount: 1,
-      batchNumber: 1,
-      batchSize: 1,
-      timestamp: new Date().toISOString()
-    }));
-    
-    console.log("Sample import response:", sampleImport);
-    
-    // Výsledek diagnostiky
-    setStatus({ 
-      type: 'success', 
-      message: `Diagnostika dokončena úspěšně. Všechny testy prošly.` 
-    });
-    
-  } catch (error) {
-    console.error("Diagnostika selhala:", error);
-    setStatus({ 
-      type: 'error', 
-      message: `Diagnostika selhala: ${error instanceof Error ? error.message : String(error)}` 
-    });
-  }
-};
-
-// Přidejte toto tlačítko do UI komponenty:
-<DS.Button
-  variant="outline"
-  onClick={runDiagnostics}
-  disabled={isImporting}
->
-  Diagnostika
-</DS.Button>
 
 export default IntelekImport;
