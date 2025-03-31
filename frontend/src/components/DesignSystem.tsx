@@ -14,6 +14,7 @@ export type ThemeColors = {
     main: string;
     hover: string;
     text: string;
+    light: string; // Přidána vlastnost light
   };
   success: {
     main: string;
@@ -102,6 +103,7 @@ export const colors: ThemeColors = {
     main: '#6b7280', // Gray-500
     hover: '#4b5563', // Gray-600
     text: '#ffffff',
+    light: '#f9fafb', // Gray-50 - přidáno
   },
   success: {
     main: '#10b981', // Green-500
