@@ -274,8 +274,16 @@ export const api = {
   },
   
   // Import produktů
-  importXmlCenik: (xmlData: string): Promise<ImportResponse> => {
-    return fetchApi<ImportResponse>('/products/import/cenik', 'POST', { xml: xmlData });
+  importXmlCenik: (importData: string): Promise<ImportResponse> => {
+    // Nejprve se pokusíme parsovat string jako JSON (protože IntelekImport.tsx je předává jako JSON.stringify)
+    try {
+      const parsedData = JSON.parse(importData);
+      // Použijeme přímo parsovaná data
+      return fetchApi<ImportResponse>('/products/import/cenik', 'POST', parsedData);
+    } catch (e) {
+      // Pokud to není validní JSON, pošleme původní způsob (zpětná kompatibilita)
+      return fetchApi<ImportResponse>('/products/import/cenik', 'POST', { xml: importData });
+    }
   },
   
   importXmlPopisky: (xmlData: string): Promise<ImportResponse> => {
