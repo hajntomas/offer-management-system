@@ -66,8 +66,8 @@ const IntelekImport: React.FC<IntelekImportProps> = ({ onImportComplete, onClose
       let response;
       
       if (importType === 'url') {
-        // Získání dat z URL
-        response = await fetch('/api/proxy', {
+        // Získání dat z URL - AKTUALIZOVÁNO PRO NOVÝ ENDPOINT
+        response = await fetch('/api/intelek-proxy', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -151,8 +151,8 @@ const IntelekImport: React.FC<IntelekImportProps> = ({ onImportComplete, onClose
       let xmlContent: string;
       
       if (importType === 'url') {
-        // Získání dat z URL
-        const response = await fetch('/api/proxy', {
+        // Získání dat z URL - AKTUALIZOVÁNO PRO NOVÝ ENDPOINT
+        const response = await fetch('/api/intelek-proxy', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
