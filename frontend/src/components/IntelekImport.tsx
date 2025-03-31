@@ -426,4 +426,105 @@ Handler pro import dat
   );
 };
 
+// Diagnostika API koncových bodů
+const runDiagnostics = async () => {
+  setStatus({ type: 'info', message: 'Spouštím diagnostiku...' });
+  
+  try {
+    // 1. Test proxy endpointu
+    console.log("Test 1: Kontrola proxy endpoint");
+    const proxyTest = await fetch('/api/intelek-proxy', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ url: URL_CENIK }),
+    });
+    
+    console.log(`Proxy test response status: ${proxyTest.status}`);
+    if (!proxyTest.ok) {
+      const errorText = await proxyTest.text();
+      console.log(`Proxy error: ${errorText}`);
+      throw new Error(`Proxy endpoint není funkční: ${proxyTest.status} ${proxyTest.statusText}`);
+    }
+    
+    // 2. Test importního endpointu s minimálními daty
+    console.log("Test 2: Kontrola importního endpoint");
+    const sampleProduct = {
+      kod: "TEST-PRODUKT",
+      nazev: "Testovací produkt",
+      cena_bez_dph: 100,
+      cena_s_dph: 121,
+      dostupnost: 10
+    };
+    
+    const importTest = await api.importXmlCenik(JSON.stringify({
+      source: 'test',
+      products: [sampleProduct],
+      totalCount: 1,
+      batchNumber: 1,
+      batchSize: 1,
+      timestamp: new Date().toISOString()
+    }));
+    
+    console.log("Import test response:", importTest);
+    if (!importTest || !importTest.count) {
+      throw new Error("Import endpoint není funkční nebo nevrací očekávanou odpověď");
+    }
+    
+    // 3. Test kompletního procesu s malým vzorkem dat
+    console.log("Test 3: Test kompletního procesu");
+    const sampleXmlContent = `
+    <product>
+      <kod>TEST-DIAGNOSTIKA</kod>
+      <ean>1234567890123</ean>
+      <nazev>Diagnostický produkt</nazev>
+      <vasecenabezdph>99.90</vasecenabezdph>
+      <vasecenasdph>120.88</vasecenasdph>
+      <dostupnost>5</dostupnost>
+    </product>
+    `;
+    
+    const products = parseXmlToProducts(sampleXmlContent, "cenik");
+    console.log("Parsed sample products:", products);
+    
+    if (products.length === 0) {
+      throw new Error("Parser XML nefunguje správně");
+    }
+    
+    const sampleImport = await api.importXmlCenik(JSON.stringify({
+      source: 'test',
+      products: products,
+      totalCount: 1,
+      batchNumber: 1,
+      batchSize: 1,
+      timestamp: new Date().toISOString()
+    }));
+    
+    console.log("Sample import response:", sampleImport);
+    
+    // Výsledek diagnostiky
+    setStatus({ 
+      type: 'success', 
+      message: `Diagnostika dokončena úspěšně. Všechny testy prošly.` 
+    });
+    
+  } catch (error) {
+    console.error("Diagnostika selhala:", error);
+    setStatus({ 
+      type: 'error', 
+      message: `Diagnostika selhala: ${error instanceof Error ? error.message : String(error)}` 
+    });
+  }
+};
+
+// Přidejte toto tlačítko do UI komponenty:
+<DS.Button
+  variant="outline"
+  onClick={runDiagnostics}
+  disabled={isImporting}
+>
+  Diagnostika
+</DS.Button>
+
 export default IntelekImport;
