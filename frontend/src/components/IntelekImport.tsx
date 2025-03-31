@@ -1,31 +1,56 @@
 // frontend/src/components/IntelekImport.tsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../services/api';
 import DS from './DesignSystem';
 
-// URL pro Intelek API - ověřené z Google Sheets kódu
+// URL pro Intelek API
 const URL_CENIK = "https://www.intelek.cz/export_cena.jsp?level=54003830&xml=true&x=PGC%2FbX15XeK%2FkGaBq7VN4A%3D%3D";
 const URL_POPISKY = "http://www.intelek.cz/export_popis.jsp";
+
+// Zmenšení velikosti dávky pro redukci timeoutů
+const BATCH_SIZE = 50;
 
 // Definice typů pro možnosti importu
 type ImportType = 'url' | 'xml';
 type ImportSource = 'cenik' | 'popisky';
+type StatusType = 'info' | 'error' | 'success' | 'warning';
+
+// Definice průběhu importu
+interface ImportProgress {
+  total: number;
+  processed: number;
+  successful: number;
+  failed: number;
+  currentBatch: number;
+  totalBatches: number;
+}
+
+// Definice výsledku importu
+interface ImportResult {
+  source: ImportSource;
+  imported: number;
+  total: number;
+  failed: boolean;
+}
 
 // Vlastnosti komponenty
 interface IntelekImportProps {
-  onImportComplete?: (result: any) => void;
+  onImportComplete?: (result: ImportResult) => void;
   onClose?: () => void;
   isModal?: boolean;
 }
 
-// Pomocné funkce pro práci s XML - převzato z Google Sheets kódu
-function extractXmlValue(text: string, tag: string): string {
-  const regex = new RegExp(`<${tag}>(.*?)<\/${tag}>`, "i");
-  const match = text.match(regex);
-  return match ? match[1].trim() : "";
-}
+// Bezpečnostní funkce pro přístup k vlastnostem témat
+const getSafeColor = (colorObj: any, property: string, defaultValue = '#ffffff') => {
+  if (!colorObj || !colorObj[property]) {
+    console.warn(`Chybí vlastnost ${property} v barevném objektu`);
+    return defaultValue;
+  }
+  return colorObj[property];
+};
 
-function cleanText(text: string): string {
+// Pomocné funkce pro práci s XML
+function cleanText(text: string | null): string {
   if (!text) return "";
   
   // Odstranění CDATA tagů
@@ -34,9 +59,9 @@ function cleanText(text: string): string {
     text = cdataMatch[1].trim();
   }
   
-  // Odstranění HTML tagů, zejména <sub> a </sub>
-  text = text.replace(/<sub>(.*?)<\/sub>/gi, "$1"); // Speciálně pro <sub> tagy
-  text = text.replace(/<[^>]*>/g, ""); // Odstranění všech ostatních HTML tagů
+  // Odstranění HTML tagů
+  text = text.replace(/<sub>(.*?)<\/sub>/gi, "$1");
+  text = text.replace(/<[^>]*>/g, "");
   
   return text;
 }
@@ -49,36 +74,40 @@ const IntelekImport: React.FC<IntelekImportProps> = ({ onImportComplete, onClose
   const [customUrl, setCustomUrl] = useState<string>(URL_CENIK);
   const [xmlData, setXmlData] = useState<string>('');
   const [isExpanded, setIsExpanded] = useState<boolean>(false);
-  const [status, setStatus] = useState<{ type: 'info' | 'error' | 'success', message: string } | null>(null);
+  const [status, setStatus] = useState<{ type: StatusType, message: string } | null>(null);
   const [isImporting, setIsImporting] = useState<boolean>(false);
-  const [importProgress, setImportProgress] = useState<{ current: number, total: number } | null>(null);
+  const [importProgress, setImportProgress] = useState<ImportProgress | null>(null);
 
   // Efekt pro nastavení výchozí URL podle zvoleného zdroje
   useEffect(() => {
     setCustomUrl(importSource === 'cenik' ? URL_CENIK : URL_POPISKY);
   }, [importSource]);
 
+  // Aktualizace statusu se správným typem
+  const updateStatus = useCallback((message: string, type: StatusType = 'info') => {
+    setStatus({ type, message });
+    console.log(`[${type.toUpperCase()}] ${message}`);
+  }, []);
+
   // Handler pro test připojení
   const handleTestConnection = async () => {
-    setStatus({ type: 'info', message: 'Testuji připojení...' });
+    updateStatus('Testuji připojení...', 'info');
     setIsImporting(true);
 
     try {
       let response;
       
       if (importType === 'url') {
-        // Získání dat z URL - AKTUALIZOVÁNO PRO NOVÝ ENDPOINT
+        // Získání dat z URL
         response = await fetch('/api/intelek-proxy', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ url: customUrl }),
         });
       } else {
         // Použití dat z textové oblasti
         if (!xmlData.trim()) {
-          setStatus({ type: 'error', message: 'Zadejte XML data' });
+          updateStatus('Zadejte XML data', 'error');
           setIsImporting(false);
           return;
         }
@@ -91,10 +120,7 @@ const IntelekImport: React.FC<IntelekImportProps> = ({ onImportComplete, onClose
       }
 
       if (!response.ok) {
-        setStatus({ 
-          type: 'error', 
-          message: `Chyba: ${response.status} ${response.statusText}` 
-        });
+        updateStatus(`Chyba: ${response.status} ${response.statusText}`, 'error');
         setIsImporting(false);
         return;
       }
@@ -103,10 +129,7 @@ const IntelekImport: React.FC<IntelekImportProps> = ({ onImportComplete, onClose
       
       // Kontrola typu obsahu - očekáváme XML
       if (!contentType.includes('xml') && !contentType.includes('text/plain')) {
-        setStatus({ 
-          type: 'error', 
-          message: `Neočekávaný typ obsahu: ${contentType}. Očekáváno XML.` 
-        });
+        updateStatus(`Neočekávaný typ obsahu: ${contentType}. Očekáváno XML.`, 'error');
         setIsImporting(false);
         return;
       }
@@ -114,40 +137,160 @@ const IntelekImport: React.FC<IntelekImportProps> = ({ onImportComplete, onClose
       // Získání textu XML
       const xmlContent = await response.text();
       
-      // Kontrola zda jde skutečně o XML
-      if (!xmlContent.includes('<?xml') && !xmlContent.includes('<product>')) {
-        setStatus({ 
-          type: 'error', 
-          message: 'Odpověď neobsahuje platné XML data' 
-        });
+      // Kontrola validního XML obsahu
+      if (!xmlContent.includes('<?xml') && 
+          !xmlContent.includes('<product>') && 
+          !xmlContent.includes('<SHOPITEM>')) {
+        updateStatus('Odpověď neobsahuje platné XML data', 'error');
         setIsImporting(false);
         return;
       }
 
-      // Základní test počtu produktů
-      const productMatches = xmlContent.match(/<product>/g);
-      const productCount = productMatches ? productMatches.length : 0;
+      // Počítání produktů - robustní způsob detekce jak pro formát <product>, tak <SHOPITEM>
+      const productMatches = (xmlContent.match(/<product>/g) || []).length;
+      const shopitemMatches = (xmlContent.match(/<SHOPITEM>/g) || []).length;
+      const productCount = productMatches + shopitemMatches;
 
-      setStatus({ 
-        type: 'success', 
-        message: `Připojení úspěšné! Nalezeno ${productCount} produktů.` 
-      });
+      updateStatus(`Připojení úspěšné! Nalezeno ${productCount} produktů.`, 'success');
     } catch (error) {
       console.error('Error testing connection:', error);
-      setStatus({ 
-        type: 'error', 
-        message: `Chyba při testování připojení: ${error instanceof Error ? error.message : String(error)}` 
-      });
+      updateStatus(`Chyba při testování připojení: ${error instanceof Error ? error.message : String(error)}`, 'error');
     } finally {
       setIsImporting(false);
     }
   };
 
-  // Handler pro import dat 
+  // Parsování XML pomocí DOMParser (spolehlivější než regex)
+  const parseXmlToProducts = (xmlContent: string, source: ImportSource) => {
+    try {
+      const parser = new DOMParser();
+      const xmlDoc = parser.parseFromString(xmlContent, 'text/xml');
+      const products = [];
+      
+      // Kontrola chyb při parsování
+      if (xmlDoc.querySelector('parsererror')) {
+        throw new Error('Chyba při parsování XML dokumentu');
+      }
+      
+      // Nejdřív zkusíme Intelek formát (product)
+      const intelekItems = xmlDoc.querySelectorAll('product');
+      
+      if (intelekItems.length > 0) {
+        // Zpracování ve formátu Intelek
+        for (let i = 0; i < intelekItems.length; i++) {
+          const item = intelekItems[i];
+          const product: Record<string, any> = {};
+          
+          // Bezpečná extrakce textu z elementu
+          const getElementText = (parent: Element, tagName: string): string => {
+            const element = parent.querySelector(tagName);
+            return element ? cleanText(element.textContent) : '';
+          };
+          
+          // Extrakce základních dat
+          product.kod = getElementText(item, 'kod');
+          product.ean = getElementText(item, 'ean');
+          product.nazev = getElementText(item, 'nazev');
+          
+          if (source === 'cenik') {
+            // Ceník specifická data
+            product.cena_bez_dph = parseFloat(getElementText(item, 'vasecenabezdph')) || 0;
+            product.cena_s_dph = parseFloat(getElementText(item, 'vasecenasdph')) || 0;
+            product.dostupnost = parseInt(getElementText(item, 'dostupnost')) || 0;
+            product.eu_bez_dph = parseFloat(getElementText(item, 'eubezdph')) || 0;
+            product.eu_s_dph = parseFloat(getElementText(item, 'eusdph')) || 0;
+          } else {
+            // Popisky specifická data
+            product.kategorie = getElementText(item, 'kategorie');
+            product.vyrobce = getElementText(item, 'vyrobce');
+            product.dodani = getElementText(item, 'dodani');
+            product.minodber = getElementText(item, 'minodber');
+            product.jednotka = getElementText(item, 'jednotka');
+            product.kratky_popis = getElementText(item, 'kratkypopis');
+            product.popis = getElementText(item, 'popis');
+            
+            // Získání URL obrázku
+            const obrazek = getElementText(item, 'obrazek');
+            const obrazek1 = item.querySelector('obrazek[id="1"]');
+            product.obrazek = obrazek || (obrazek1 ? cleanText(obrazek1.textContent) : '');
+          }
+          
+          // Přidání produktu do pole, jen pokud má kód
+          if (product.kod) {
+            products.push(product);
+          }
+        }
+      } else {
+        // Zkusíme alternativní formát (SHOPITEM)
+        const shopItems = xmlDoc.querySelectorAll('SHOPITEM');
+        
+        for (let i = 0; i < shopItems.length; i++) {
+          const item = shopItems[i];
+          const product: Record<string, any> = {};
+          
+          // Bezpečná extrakce textu z elementu
+          const getElementText = (parent: Element, tagName: string): string => {
+            const element = parent.querySelector(tagName);
+            return element ? cleanText(element.textContent) : '';
+          };
+          
+          // Extrakce základních dat
+          product.kod = getElementText(item, 'CODE') || getElementText(item, 'PRODUCTNO');
+          product.ean = getElementText(item, 'EAN');
+          product.nazev = getElementText(item, 'PRODUCT');
+          
+          if (source === 'cenik') {
+            // Ceník specifická data
+            product.cena_bez_dph = parseFloat(getElementText(item, 'PRICE')) || 0;
+            product.cena_s_dph = parseFloat(getElementText(item, 'PRICE_VAT')) || 0;
+            product.dostupnost = getElementText(item, 'DELIVERY_DATE') || 0;
+          } else {
+            // Popisky specifická data
+            product.kategorie = getElementText(item, 'CATEGORYTEXT');
+            product.vyrobce = getElementText(item, 'MANUFACTURER');
+            product.kratky_popis = getElementText(item, 'DESCRIPTION_SHORT');
+            product.popis = getElementText(item, 'DESCRIPTION');
+            product.obrazek = getElementText(item, 'IMGURL');
+            
+            // Parametry
+            const params = item.querySelectorAll('PARAM');
+            const parametry: string[] = [];
+            params.forEach(param => {
+              const nazev = getElementText(param, 'PARAM_NAME');
+              const hodnota = getElementText(param, 'VAL');
+              if (nazev && hodnota) {
+                parametry.push(`${nazev}: ${hodnota}`);
+              }
+            });
+            product.parametry = parametry.join("\n");
+          }
+          
+          // Přidání produktu do pole, jen pokud má kód
+          if (product.kod) {
+            products.push(product);
+          }
+        }
+      }
+      
+      return products;
+    } catch (error) {
+      console.error('Chyba při parsování XML:', error);
+      throw new Error(`Nepodařilo se zpracovat XML: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+
+  // Handler pro import dat
   const handleImport = async () => {
-    setStatus({ type: 'info', message: 'Začínám import...' });
+    updateStatus('Začínám import...', 'info');
     setIsImporting(true);
-    setImportProgress(null);
+    setImportProgress({
+      total: 0,
+      processed: 0,
+      successful: 0,
+      failed: 0,
+      currentBatch: 0,
+      totalBatches: 0
+    });
 
     try {
       let xmlContent = '';
@@ -157,9 +300,7 @@ const IntelekImport: React.FC<IntelekImportProps> = ({ onImportComplete, onClose
         // Získání dat z URL přes proxy
         const response = await fetch('/api/intelek-proxy', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ url: customUrl }),
         });
 
@@ -171,7 +312,7 @@ const IntelekImport: React.FC<IntelekImportProps> = ({ onImportComplete, onClose
       } else {
         // Použití zadaných XML dat
         if (!xmlData.trim()) {
-          setStatus({ type: 'error', message: 'Zadejte XML data' });
+          updateStatus('Zadejte XML data', 'error');
           setIsImporting(false);
           return;
         }
@@ -182,19 +323,27 @@ const IntelekImport: React.FC<IntelekImportProps> = ({ onImportComplete, onClose
       const products = parseXmlToProducts(xmlContent, importSource);
       
       if (products.length === 0) {
-        setStatus({ type: 'error', message: 'Nebyly nalezeny žádné produkty k importu' });
+        updateStatus('Nebyly nalezeny žádné produkty k importu', 'error');
         setIsImporting(false);
         return;
       }
 
       console.log(`Zpracováno ${products.length} produktů z XML`);
       
-      // Rozdělení produktů do dávek pro menší zatížení KV storage
-      // Optimální velikost dávky pro KV storage je cca 100-200 produktů
-      const BATCH_SIZE = 100;
+      // Rozdělení produktů do dávek - zmenšené dávky pro lepší výkon
       const totalBatches = Math.ceil(products.length / BATCH_SIZE);
       let importedCount = 0;
       let failedBatches = 0;
+      
+      // Aktualizace progress
+      setImportProgress({
+        total: products.length,
+        processed: 0,
+        successful: 0,
+        failed: 0,
+        currentBatch: 0,
+        totalBatches
+      });
       
       // Timestamp pro identifikaci importu
       const importTimestamp = new Date().toISOString();
@@ -205,15 +354,16 @@ const IntelekImport: React.FC<IntelekImportProps> = ({ onImportComplete, onClose
         const end = Math.min((i + 1) * BATCH_SIZE, products.length);
         const batch = products.slice(start, end);
         
-        setImportProgress({
-          current: i + 1,
-          total: totalBatches
+        // Aktualizace progress
+        setImportProgress(prev => {
+          if (!prev) return null;
+          return {
+            ...prev,
+            currentBatch: i + 1
+          };
         });
         
-        setStatus({ 
-          type: 'info', 
-          message: `Importuji dávku ${i + 1}/${totalBatches} (${batch.length} produktů)...` 
-        });
+        updateStatus(`Importuji dávku ${i + 1}/${totalBatches} (${batch.length} produktů)...`, 'info');
         
         try {
           // Příprava dat pro odeslání
@@ -222,7 +372,7 @@ const IntelekImport: React.FC<IntelekImportProps> = ({ onImportComplete, onClose
             products: batch,
             totalCount: products.length,
             batchNumber: i + 1,
-            batchSize: totalBatches,
+            totalBatches: totalBatches,
             timestamp: importTimestamp
           };
           
@@ -231,43 +381,53 @@ const IntelekImport: React.FC<IntelekImportProps> = ({ onImportComplete, onClose
             ? api.importXmlCenik 
             : api.importXmlPopisky;
           
-          const response = await apiMethod(JSON.stringify(importData));
+          // KLÍČOVÁ ZMĚNA: Předáváme data přímo, ne jako stringifikovaný JSON
+          const response = await apiMethod(importData);
           
           console.log(`Dávka ${i + 1}/${totalBatches} úspěšně importována:`, response);
           
           // Aktualizace počítadla
           if (response && response.count) {
             importedCount += response.count;
+            
+            // Aktualizace progress
+            setImportProgress(prev => {
+              if (!prev) return null;
+              return {
+                ...prev,
+                processed: Math.min(prev.processed + batch.length, prev.total),
+                successful: importedCount
+              };
+            });
           }
         } catch (error) {
           console.error(`Chyba při importu dávky ${i + 1}/${totalBatches}:`, error);
           failedBatches++;
           
-          // Pokračujeme s další dávkou i po chybě
+          // Aktualizace progress s chybou
+          setImportProgress(prev => {
+            if (!prev) return null;
+            return {
+              ...prev,
+              processed: Math.min(prev.processed + batch.length, prev.total),
+              failed: prev.failed + batch.length
+            };
+          });
         }
         
-        // Krátké zpoždění mezi dávkami pro menší zatížení serveru
+        // Delší zpoždění mezi dávkami pro snížení rizika timeoutů
         if (i < totalBatches - 1) {
-          await new Promise(resolve => setTimeout(resolve, 300));
+          await new Promise(resolve => setTimeout(resolve, 500));
         }
       }
       
       // Konečný status
       if (failedBatches === 0) {
-        setStatus({ 
-          type: 'success', 
-          message: `Import z ${importSource === 'cenik' ? 'ceníku' : 'popisků'} dokončen: ${importedCount} produktů` 
-        });
+        updateStatus(`Import z ${importSource === 'cenik' ? 'ceníku' : 'popisků'} dokončen: ${importedCount} produktů`, 'success');
       } else if (failedBatches < totalBatches) {
-        setStatus({ 
-          type: 'warning', 
-          message: `Import částečně úspěšný: ${importedCount} produktů. ${failedBatches} dávek selhalo.` 
-        });
+        updateStatus(`Import částečně úspěšný: ${importedCount} produktů. ${failedBatches} dávek selhalo.`, 'warning');
       } else {
-        setStatus({ 
-          type: 'error', 
-          message: `Import selhal: všechny dávky měly chybu.` 
-        });
+        updateStatus(`Import selhal: všechny dávky měly chybu.`, 'error');
       }
       
       // Volání callback funkce, pokud byla poskytnuta
@@ -276,143 +436,52 @@ const IntelekImport: React.FC<IntelekImportProps> = ({ onImportComplete, onClose
           source: importSource,
           total: products.length,
           imported: importedCount,
-          failed: failedBatches > 0 ? true : false
+          failed: failedBatches > 0
         });
       }
       
     } catch (error) {
       console.error('Chyba při importu:', error);
-      setStatus({ 
-        type: 'error', 
-        message: `Import selhal: ${error instanceof Error ? error.message : String(error)}` 
-      });
+      updateStatus(`Import selhal: ${error instanceof Error ? error.message : String(error)}`, 'error');
     } finally {
       setIsImporting(false);
-      setImportProgress(null);
     }
   };
 
-  // Převod XML na pole produktů
-  const parseXmlToProducts = (xmlContent: string, source: ImportSource) => {
-    const products = [];
-    const productRegex = /<product>([\s\S]*?)<\/product>/g;
-    let match;
+  // Sloučení dat z obou zdrojů (ceník + popisky)
+  const handleMergeProducts = async () => {
+    updateStatus('Začínám slučování dat...', 'info');
+    setIsImporting(true);
     
-    while ((match = productRegex.exec(xmlContent)) !== null) {
-      const productContent = match[1];
-      const product: Record<string, any> = {};
+    try {
+      const response = await api.mergeProductData();
       
-      // Extrakce základních dat
-      product.kod = extractXmlValue(productContent, "kod");
-      product.ean = extractXmlValue(productContent, "ean");
-      
-      // Název je v obou feedech
-      const nazev = extractXmlValue(productContent, "nazev");
-      product.nazev = cleanText(nazev);
-      
-      if (source === 'cenik') {
-        // Ceník specifická data
-        product.cena_bez_dph = parseFloat(extractXmlValue(productContent, "vasecenabezdph")) || 0;
-        product.cena_s_dph = parseFloat(extractXmlValue(productContent, "vasecenasdph")) || 0;
-        product.dostupnost = parseInt(extractXmlValue(productContent, "dostupnost")) || 0;
-        
-        // Další cenové údaje
-        product.eu_bez_dph = parseFloat(extractXmlValue(productContent, "eubezdph")) || 0;
-        product.eu_s_dph = parseFloat(extractXmlValue(productContent, "eusdph")) || 0;
-        
-        const remaBezDph = extractXmlValue(productContent, "remabezdph");
-        product.rema_bez_dph = remaBezDph ? parseFloat(remaBezDph) : null;
-        
-        const remaDph = extractXmlValue(productContent, "remadph");
-        product.rema_dph = remaDph ? parseFloat(remaDph) : null;
+      if (response && response.count) {
+        updateStatus(`Sloučení dokončeno: ${response.count} produktů aktualizováno`, 'success');
       } else {
-        // Popisky specifická data
-        const kategorie = extractXmlValue(productContent, "kategorie");
-        product.kategorie = cleanText(kategorie);
-        
-        const vyrobce = extractXmlValue(productContent, "vyrobce");
-        product.vyrobce = cleanText(vyrobce);
-        
-        product.dodani = extractXmlValue(productContent, "dodani");
-        product.minodber = extractXmlValue(productContent, "minodber");
-        product.jednotka = extractXmlValue(productContent, "jednotka");
-        
-        // Extrakce popisu a krátkého popisu
-        const kratkyPopis = extractXmlValue(productContent, "kratkypopis");
-        product.kratky_popis = cleanText(kratkyPopis);
-        
-        const popis = extractXmlValue(productContent, "popis");
-        product.popis = cleanText(popis);
-        
-        // Získání URL obrázku
-        let obrazek = extractXmlValue(productContent, "obrazek");
-        if (!obrazek) {
-          // Pokus najít obrazek s id="1" pokud existuje
-          const obrazekMatch = productContent.match(/<obrazek id="1">(.*?)<\/obrazek>/);
-          if (obrazekMatch) {
-            obrazek = obrazekMatch[1];
-          }
-        }
-        product.obrazek = obrazek;
-        
-        // Parametry - můžou být ve více elmentech
-        const parametry: string[] = [];
-        const paramRegex = /<parametr>([\s\S]*?)<\/parametr>/g;
-        let paramMatch;
-        
-        while ((paramMatch = paramRegex.exec(productContent)) !== null) {
-          const paramContent = paramMatch[1];
-          const paramNazev = extractXmlValue(paramContent, "nazev");
-          const paramHodnota = extractXmlValue(paramContent, "hodnota");
-          
-          if (paramNazev && paramHodnota) {
-            parametry.push(`${paramNazev}: ${paramHodnota}`);
-          }
-        }
-        product.parametry = parametry.join("\n");
-        
-        // Extrakce dokumentů
-        const dokumenty: string[] = [];
-        
-        // Datasheets
-        const datasheetRegex = /<datasheet id="[^"]*">(.*?)<\/datasheet>/g;
-        let datasheetMatch;
-        while ((datasheetMatch = datasheetRegex.exec(productContent)) !== null) {
-          dokumenty.push(`Datasheet: ${datasheetMatch[1]}`);
-        }
-        
-        // Manuals
-        const manualRegex = /<manual id="[^"]*">(.*?)<\/manual>/g;
-        let manualMatch;
-        while ((manualMatch = manualRegex.exec(productContent)) !== null) {
-          dokumenty.push(`Manual: ${manualMatch[1]}`);
-        }
-        
-        product.dokumenty = dokumenty.join("\n");
+        updateStatus(`Sloučení dokončeno, ale nebyly vráceny počty produktů`, 'warning');
       }
-      
-      // Přidání produktu do pole, jen pokud má kód
-      if (product.kod) {
-        products.push(product);
-      }
+    } catch (error) {
+      console.error('Chyba při slučování produktů:', error);
+      updateStatus(`Sloučení selhalo: ${error instanceof Error ? error.message : String(error)}`, 'error');
+    } finally {
+      setIsImporting(false);
     }
-    
-    return products;
   };
 
   // Diagnostika API koncových bodů
   const runDiagnostics = async () => {
-    setStatus({ type: 'info', message: 'Spouštím diagnostiku...' });
+    updateStatus('Spouštím diagnostiku...', 'info');
     setIsImporting(true);
     
     try {
       // 1. Test proxy endpointu
       console.log("Test 1: Kontrola proxy endpoint");
+      updateStatus('Test 1: Kontrola proxy endpoint...', 'info');
+      
       const proxyTest = await fetch('/api/intelek-proxy', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: URL_CENIK }),
       });
       
@@ -425,6 +494,8 @@ const IntelekImport: React.FC<IntelekImportProps> = ({ onImportComplete, onClose
       
       // 2. Test importního endpointu s minimálními daty
       console.log("Test 2: Kontrola importního endpoint");
+      updateStatus('Test 2: Kontrola importního endpointu...', 'info');
+      
       const sampleProduct = {
         kod: "TEST-PRODUKT",
         nazev: "Testovací produkt",
@@ -433,200 +504,256 @@ const IntelekImport: React.FC<IntelekImportProps> = ({ onImportComplete, onClose
         dostupnost: 10
       };
       
-      const importTest = await api.importXmlCenik(JSON.stringify({
+      // DŮLEŽITÉ: Předáváme data jako objekt, ne stringifikovaný JSON
+      const importTest = await api.importXmlCenik({
         source: 'test',
         products: [sampleProduct],
         totalCount: 1,
         batchNumber: 1,
-        batchSize: 1,
+        totalBatches: 1,
         timestamp: new Date().toISOString()
-      }));
+      });
       
       console.log("Import test response:", importTest);
       if (!importTest || !importTest.count) {
         throw new Error("Import endpoint není funkční nebo nevrací očekávanou odpověď");
       }
       
-      // 3. Test kompletního procesu s malým vzorkem dat
-      console.log("Test 3: Test kompletního procesu");
-      const sampleXmlContent = `
-      <product>
-        <kod>TEST-DIAGNOSTIKA</kod>
-        <ean>1234567890123</ean>
-        <nazev>Diagnostický produkt</nazev>
-        <vasecenabezdph>99.90</vasecenabezdph>
-        <vasecenasdph>120.88</vasecenasdph>
-        <dostupnost>5</dostupnost>
-      </product>
-      `;
+      // 3. Test čtení z KV storage
+      console.log("Test 3: Kontrola čtení z KV storage");
+      updateStatus('Test 3: Kontrola čtení z KV storage...', 'info');
       
-      const products = parseXmlToProducts(sampleXmlContent, "cenik");
-      console.log("Parsed sample products:", products);
-      
-      if (products.length === 0) {
-        throw new Error("Parser XML nefunguje správně");
-      }
-      
-      const sampleImport = await api.importXmlCenik(JSON.stringify({
-        source: 'test',
-        products: products,
-        totalCount: 1,
-        batchNumber: 1,
-        batchSize: 1,
-        timestamp: new Date().toISOString()
-      }));
-      
-      console.log("Sample import response:", sampleImport);
+      const productTest = await api.getProduct(sampleProduct.kod);
+      console.log("Get product response:", productTest);
       
       // Výsledek diagnostiky
-      setStatus({ 
-        type: 'success', 
-        message: `Diagnostika dokončena úspěšně. Všechny testy prošly.` 
-      });
+      updateStatus(`Diagnostika dokončena úspěšně. Všechny testy prošly.`, 'success');
       
     } catch (error) {
       console.error("Diagnostika selhala:", error);
-      setStatus({ 
-        type: 'error', 
-        message: `Diagnostika selhala: ${error instanceof Error ? error.message : String(error)}` 
-      });
+      updateStatus(`Diagnostika selhala: ${error instanceof Error ? error.message : String(error)}`, 'error');
     } finally {
       setIsImporting(false);
     }
   };
 
-  // Renderování komponenty
+  // Renderování komponenty - s defensivním přístupem k vlastnostem témat
   return (
     <div>
-      <h2 style={{ textAlign: 'center', marginBottom: DS.spacing.md }}>
+      <h2 style={{ textAlign: 'center', marginBottom: '1rem' }}>
         Import produktů z Intelek.cz
       </h2>
       
       {status && (
-        <DS.StatusMessage
-          type={status.type}
-          style={{ marginBottom: DS.spacing.md }}
-        >
+        <div style={{ 
+          padding: '0.75rem',
+          borderRadius: '0.375rem',
+          marginBottom: '1rem',
+          backgroundColor: 
+            status.type === 'error' ? '#fee2e2' : 
+            status.type === 'success' ? '#d1fae5' : 
+            status.type === 'warning' ? '#fef3c7' : 
+            '#e0f2fe',
+          color: 
+            status.type === 'error' ? '#7f1d1d' : 
+            status.type === 'success' ? '#064e3b' : 
+            status.type === 'warning' ? '#78350f' : 
+            '#0c4a6e',
+        }}>
           {status.message}
-        </DS.StatusMessage>
+        </div>
       )}
       
       {importProgress && (
         <div style={{ 
-          marginBottom: DS.spacing.md, 
-          padding: DS.spacing.sm,
-          backgroundColor: DS.colors.gray[100],
-          borderRadius: DS.radii.md,
+          marginBottom: '1rem', 
+          padding: '0.75rem',
+          backgroundColor: '#f3f4f6',
+          borderRadius: '0.375rem',
           textAlign: 'center'
         }}>
-          <div>Průběh importu: {importProgress.current} z {importProgress.total} dávek</div>
+          <div>
+            Průběh importu: {importProgress.currentBatch} z {importProgress.totalBatches} dávek
+          </div>
+          <div>
+            Zpracováno {importProgress.processed} z {importProgress.total} produktů
+            {importProgress.successful > 0 && (
+              <span> ({importProgress.successful} úspěšně, {importProgress.failed} neúspěšně)</span>
+            )}
+          </div>
           <div style={{
             width: '100%',
             height: '10px',
-            backgroundColor: DS.colors.gray[300],
-            borderRadius: DS.radii.sm,
+            backgroundColor: '#d1d5db',
+            borderRadius: '0.25rem',
             overflow: 'hidden',
-            marginTop: DS.spacing.xs
+            marginTop: '0.5rem'
           }}>
             <div style={{
-              width: `${(importProgress.current / importProgress.total) * 100}%`,
+              width: `${Math.max(1, (importProgress.processed / Math.max(1, importProgress.total)) * 100)}%`,
               height: '100%',
-              backgroundColor: DS.colors.primary.main
+              backgroundColor: importProgress.failed > 0 ? 
+                '#f59e0b' : // amber-500 
+                '#3b82f6', // blue-500
+              transition: 'width 0.3s ease'
             }} />
           </div>
         </div>
       )}
       
-      <div style={{ marginBottom: DS.spacing.md, display: 'flex', justifyContent: 'center', gap: DS.spacing.md }}>
-        <DS.Button
-          variant={importType === 'url' ? 'primary' : 'outline'}
+      <div style={{ marginBottom: '1rem', display: 'flex', justifyContent: 'center', gap: '0.75rem' }}>
+        <button
           onClick={() => setImportType('url')}
+          style={{
+            padding: '0.5rem 1rem',
+            backgroundColor: importType === 'url' ? '#3b82f6' : 'transparent',
+            color: importType === 'url' ? 'white' : '#1f2937',
+            border: `1px solid ${importType === 'url' ? '#3b82f6' : '#d1d5db'}`,
+            borderRadius: '0.375rem',
+            cursor: 'pointer'
+          }}
         >
           Import z URL
-        </DS.Button>
-        <DS.Button
-          variant={importType === 'xml' ? 'primary' : 'outline'}
+        </button>
+        <button
           onClick={() => setImportType('xml')}
+          style={{
+            padding: '0.5rem 1rem',
+            backgroundColor: importType === 'xml' ? '#3b82f6' : 'transparent',
+            color: importType === 'xml' ? 'white' : '#1f2937',
+            border: `1px solid ${importType === 'xml' ? '#3b82f6' : '#d1d5db'}`,
+            borderRadius: '0.375rem',
+            cursor: 'pointer'
+          }}
         >
           Import z XML dat
-        </DS.Button>
+        </button>
       </div>
       
-      <div style={{ marginBottom: DS.spacing.md, borderRadius: DS.radii.md, padding: DS.spacing.md, border: `1px solid ${DS.colors.gray[200]}` }}>
+      <div style={{ 
+        marginBottom: '1rem', 
+        borderRadius: '0.375rem', 
+        padding: '1rem', 
+        border: '1px solid #e5e7eb' 
+      }}>
         {importType === 'url' ? (
           <>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: DS.spacing.sm }}>
-              <div style={{ marginBottom: DS.spacing.sm }}>
-                <label style={DS.forms.label}>Vyberte zdroj importu:</label>
-                <div style={{ display: 'flex', gap: DS.spacing.sm }}>
-                  <DS.Button
-                    variant={importSource === 'cenik' ? 'primary' : 'outline'}
-                    size="sm"
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              <div style={{ marginBottom: '0.5rem' }}>
+                <label style={{ display: 'block', marginBottom: '0.25rem', fontWeight: 500 }}>
+                  Vyberte zdroj importu:
+                </label>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <button
                     onClick={() => setImportSource('cenik')}
+                    style={{
+                      padding: '0.25rem 0.5rem',
+                      backgroundColor: importSource === 'cenik' ? '#3b82f6' : 'transparent',
+                      color: importSource === 'cenik' ? 'white' : '#1f2937',
+                      border: `1px solid ${importSource === 'cenik' ? '#3b82f6' : '#d1d5db'}`,
+                      borderRadius: '0.375rem',
+                      fontSize: '0.875rem',
+                      cursor: 'pointer'
+                    }}
                   >
                     Ceník
-                  </DS.Button>
-                  <DS.Button
-                    variant={importSource === 'popisky' ? 'primary' : 'outline'}
-                    size="sm"
+                  </button>
+                  <button
                     onClick={() => setImportSource('popisky')}
+                    style={{
+                      padding: '0.25rem 0.5rem',
+                      backgroundColor: importSource === 'popisky' ? '#3b82f6' : 'transparent',
+                      color: importSource === 'popisky' ? 'white' : '#1f2937',
+                      border: `1px solid ${importSource === 'popisky' ? '#3b82f6' : '#d1d5db'}`,
+                      borderRadius: '0.375rem',
+                      fontSize: '0.875rem',
+                      cursor: 'pointer'
+                    }}
                   >
                     Popisky
-                  </DS.Button>
+                  </button>
                 </div>
               </div>
               
               <div>
-                <label style={DS.forms.label}>URL pro import</label>
-                <DS.Input
+                <label style={{ display: 'block', marginBottom: '0.25rem', fontWeight: 500 }}>
+                  URL pro import
+                </label>
+                <input
                   type="text"
                   value={customUrl}
                   onChange={(e) => setCustomUrl(e.target.value)}
                   placeholder="URL pro stažení XML"
                   disabled={isImporting}
+                  style={{
+                    width: '100%',
+                    padding: '0.5rem',
+                    border: '1px solid #d1d5db',
+                    borderRadius: '0.375rem',
+                    backgroundColor: isImporting ? '#f3f4f6' : 'white'
+                  }}
                 />
               </div>
             </div>
           </>
         ) : (
           <>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: DS.spacing.sm }}>
-              <div style={{ marginBottom: DS.spacing.sm }}>
-                <label style={DS.forms.label}>Vyberte typ dat:</label>
-                <div style={{ display: 'flex', gap: DS.spacing.sm }}>
-                  <DS.Button
-                    variant={importSource === 'cenik' ? 'primary' : 'outline'}
-                    size="sm"
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              <div style={{ marginBottom: '0.5rem' }}>
+                <label style={{ display: 'block', marginBottom: '0.25rem', fontWeight: 500 }}>
+                  Vyberte typ dat:
+                </label>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <button
                     onClick={() => setImportSource('cenik')}
+                    style={{
+                      padding: '0.25rem 0.5rem',
+                      backgroundColor: importSource === 'cenik' ? '#3b82f6' : 'transparent',
+                      color: importSource === 'cenik' ? 'white' : '#1f2937',
+                      border: `1px solid ${importSource === 'cenik' ? '#3b82f6' : '#d1d5db'}`,
+                      borderRadius: '0.375rem',
+                      fontSize: '0.875rem',
+                      cursor: 'pointer'
+                    }}
                   >
                     Ceník
-                  </DS.Button>
-                  <DS.Button
-                    variant={importSource === 'popisky' ? 'primary' : 'outline'}
-                    size="sm"
+                  </button>
+                  <button
                     onClick={() => setImportSource('popisky')}
+                    style={{
+                      padding: '0.25rem 0.5rem',
+                      backgroundColor: importSource === 'popisky' ? '#3b82f6' : 'transparent',
+                      color: importSource === 'popisky' ? 'white' : '#1f2937',
+                      border: `1px solid ${importSource === 'popisky' ? '#3b82f6' : '#d1d5db'}`,
+                      borderRadius: '0.375rem',
+                      fontSize: '0.875rem',
+                      cursor: 'pointer'
+                    }}
                   >
                     Popisky
-                  </DS.Button>
+                  </button>
                 </div>
               </div>
               
               <div>
-                <label style={DS.forms.label}>XML data</label>
+                <label style={{ display: 'block', marginBottom: '0.25rem', fontWeight: 500 }}>
+                  XML data
+                </label>
                 <textarea
                   value={xmlData}
                   onChange={(e) => setXmlData(e.target.value)}
                   placeholder="Vložte XML data..."
+                  disabled={isImporting}
                   style={{
                     width: '100%',
                     minHeight: '150px',
-                    padding: DS.spacing.sm,
-                    borderRadius: DS.radii.md,
-                    border: `1px solid ${DS.colors.gray[300]}`,
+                    padding: '0.5rem',
+                    borderRadius: '0.375rem',
+                    border: '1px solid #d1d5db',
                     fontFamily: 'monospace',
-                    fontSize: '14px'
+                    fontSize: '0.875rem',
+                    backgroundColor: isImporting ? '#f3f4f6' : 'white'
                   }}
-                  disabled={isImporting}
                 />
               </div>
             </div>
@@ -634,14 +761,17 @@ const IntelekImport: React.FC<IntelekImportProps> = ({ onImportComplete, onClose
         )}
       </div>
       
-      <div onClick={() => setIsExpanded(!isExpanded)} style={{ 
-        cursor: 'pointer', 
-        display: 'flex', 
-        alignItems: 'center', 
-        marginBottom: DS.spacing.md, 
-        color: DS.colors.primary.main
-      }}>
-        <span style={{ marginRight: DS.spacing.xs }}>
+      <div 
+        onClick={() => setIsExpanded(!isExpanded)} 
+        style={{ 
+          cursor: 'pointer', 
+          display: 'flex', 
+          alignItems: 'center', 
+          marginBottom: '1rem', 
+          color: '#3b82f6'
+        }}
+      >
+        <span style={{ marginRight: '0.25rem' }}>
           {isExpanded ? '▼' : '►'}
         </span>
         <span>Rozšířené možnosti</span>
@@ -649,56 +779,109 @@ const IntelekImport: React.FC<IntelekImportProps> = ({ onImportComplete, onClose
       
       {isExpanded && (
         <div style={{ 
-          marginBottom: DS.spacing.md, 
-          padding: DS.spacing.md, 
-          backgroundColor: DS.colors.gray[100], 
-          borderRadius: DS.radii.md 
+          marginBottom: '1rem', 
+          padding: '1rem', 
+          backgroundColor: '#f3f4f6', 
+          borderRadius: '0.375rem' 
         }}>
-          <p style={{ fontSize: DS.fontSizes.sm, marginBottom: DS.spacing.md, color: DS.colors.gray[600] }}>
+          <p style={{ 
+            fontSize: '0.875rem', 
+            marginBottom: '1rem', 
+            color: '#4b5563' 
+          }}>
             <strong>Tipy pro import:</strong><br />
             - URL pro ceník: {URL_CENIK}<br />
             - URL pro popisky: {URL_POPISKY}<br />
-            - Před importem doporučujeme otestovat připojení<br />
             - Pro větší množství dat použijte přímý import z XML<br />
+            - Po importu ceníku a popisků použijte sloučení<br />
           </p>
           
-          <DS.Button
-            variant="outline"
-            onClick={runDiagnostics}
-            disabled={isImporting}
-            style={{ marginRight: DS.spacing.sm }}
-          >
-            Diagnostika
-          </DS.Button>
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <button
+              onClick={runDiagnostics}
+              disabled={isImporting}
+              style={{
+                padding: '0.5rem 1rem',
+                backgroundColor: 'transparent',
+                color: '#1f2937',
+                border: '1px solid #d1d5db',
+                borderRadius: '0.375rem',
+                cursor: isImporting ? 'not-allowed' : 'pointer',
+                opacity: isImporting ? 0.7 : 1
+              }}
+            >
+              Diagnostika
+            </button>
+            
+            <button
+              onClick={handleMergeProducts}
+              disabled={isImporting}
+              style={{
+                padding: '0.5rem 1rem',
+                backgroundColor: '#10b981',
+                color: 'white',
+                border: '1px solid #10b981',
+                borderRadius: '0.375rem',
+                cursor: isImporting ? 'not-allowed' : 'pointer',
+                opacity: isImporting ? 0.7 : 1
+              }}
+            >
+              Sloučit produkty
+            </button>
+          </div>
         </div>
       )}
       
       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-        <DS.Button
-          variant="outline"
+        <button
           onClick={handleTestConnection}
           disabled={isImporting}
+          style={{
+            padding: '0.5rem 1rem',
+            backgroundColor: 'transparent',
+            color: '#1f2937',
+            border: '1px solid #d1d5db',
+            borderRadius: '0.375rem',
+            cursor: isImporting ? 'not-allowed' : 'pointer',
+            opacity: isImporting ? 0.7 : 1
+          }}
         >
           Otestovat připojení
-        </DS.Button>
+        </button>
         
-        <div style={{ display: 'flex', gap: DS.spacing.sm }}>
+        <div style={{ display: 'flex', gap: '0.5rem' }}>
           {isModal && (
-            <DS.Button
-              variant="outline"
+            <button
               onClick={onClose}
               disabled={isImporting}
+              style={{
+                padding: '0.5rem 1rem',
+                backgroundColor: 'transparent',
+                color: '#1f2937',
+                border: '1px solid #d1d5db',
+                borderRadius: '0.375rem',
+                cursor: isImporting ? 'not-allowed' : 'pointer',
+                opacity: isImporting ? 0.7 : 1
+              }}
             >
               Zavřít
-            </DS.Button>
+            </button>
           )}
-          <DS.Button
-            variant="primary"
+          <button
             onClick={handleImport}
             disabled={isImporting || (importType === 'xml' && !xmlData.trim())}
+            style={{
+              padding: '0.5rem 1rem',
+              backgroundColor: '#3b82f6',
+              color: 'white',
+              border: '1px solid #3b82f6',
+              borderRadius: '0.375rem',
+              cursor: (isImporting || (importType === 'xml' && !xmlData.trim())) ? 'not-allowed' : 'pointer',
+              opacity: (isImporting || (importType === 'xml' && !xmlData.trim())) ? 0.7 : 1
+            }}
           >
             {isImporting ? 'Importuji...' : 'Spustit import'}
-          </DS.Button>
+          </button>
         </div>
       </div>
     </div>
