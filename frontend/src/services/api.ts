@@ -286,8 +286,16 @@ export const api = {
     }
   },
   
-  importXmlPopisky: (xmlData: string): Promise<ImportResponse> => {
-    return fetchApi<ImportResponse>('/products/import/popisky', 'POST', { xml: xmlData });
+  importXmlPopisky: (importData: string): Promise<ImportResponse> => {
+    // Nejprve se pokusíme parsovat string jako JSON (protože IntelekImport.tsx je předává jako JSON.stringify)
+    try {
+      const parsedData = JSON.parse(importData);
+      // Použijeme přímo parsovaná data
+      return fetchApi<ImportResponse>('/products/import/popisky', 'POST', parsedData);
+    } catch (e) {
+      // Pokud to není validní JSON, pošleme původní způsob (zpětná kompatibilita)
+      return fetchApi<ImportResponse>('/products/import/popisky', 'POST', { xml: importData });
+    }
   },
   
   importExcel: (file: File): Promise<ImportResponse> => {
